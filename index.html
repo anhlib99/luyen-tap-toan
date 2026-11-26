@@ -3,7 +3,7 @@
 <head>
 <script>window.API_URL = "https://script.google.com/macros/s/AKfycbxwBGq8CRxmubL5fi3kayGguJXzwh-vp77NnhvQ6xtzDuAScspf7t3zC2mMPu93P2iWLw/exec";</script>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
 <meta name="theme-color" content="#5b4be1">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22%3E%3Crect width=%2264%22 height=%2264%22 rx=%2214%22 fill=%22%235b4be1%22/%3E%3Ctext x=%2232%22 y=%2243%22 font-size=%2230%22 text-anchor=%22middle%22 fill=%22white%22 font-family=%22serif%22%3E%E2%88%9Ax%3C/text%3E%3C/svg%3E">
 <title>Luyện tập Toán</title>
@@ -1389,6 +1389,22 @@ function thanhKiHieu(hien, inp) {
     });
   }
   t.style.display = 'flex';
+  datViTriThanh();
+}
+// Điện thoại: bàn phím ảo che phần dưới màn hình -> đặt thanh kí hiệu ngay trên bàn phím
+function datViTriThanh() {
+  var t = document.getElementById('thanh-ki-hieu'), vv = window.visualViewport;
+  if (!t || t.style.display === 'none') return;
+  var duoi = vv ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
+  t.style.bottom = duoi + 'px';
+  if (oDangGo && vv) { // ô đang gõ không bị thanh che
+    var r = oDangGo.getBoundingClientRect(), dayThanh = vv.offsetTop + vv.height - t.offsetHeight - 8;
+    if (r.bottom > dayThanh) window.scrollBy(0, r.bottom - dayThanh);
+  }
+}
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', datViTriThanh);
+  window.visualViewport.addEventListener('scroll', datViTriThanh);
 }
 document.addEventListener('focusout', function () {
   setTimeout(function () { var a = document.activeElement; if (!a || !a.closest || !a.closest('.o')) thanhKiHieu(false); }, 150);
