@@ -197,6 +197,11 @@ label{font-size:13.5px;font-weight:600;color:var(--mo);display:block;margin:12px
 .o.dung .o-chip .gt{color:var(--chu)}
 .o.sai .o-chip{border-color:var(--sai);background:var(--sai2)}
 .o.sai .o-chip .gt{text-decoration:line-through;text-decoration-color:var(--sai);opacity:.85}
+.o.sua-duoc .o-chip{cursor:pointer;-webkit-tap-highlight-color:transparent;transition:border-color .15s}
+.o.sua-duoc .o-chip:hover,.o.sua-duoc .o-chip:active{border-color:var(--chinh)}
+.o.dang-sua input{border-color:var(--chinh)}
+.goi-y-sua{display:flex;align-items:center;gap:6px;margin:4px 0 10px}
+.goi-y-sua svg{width:15px;height:15px;flex:none}
 .o .dap-an-dung{display:block;margin-top:5px;font-size:13.5px;color:var(--dung);font-weight:600;background:var(--dung2);border-radius:8px;padding:3px 9px;width:max-content;max-width:100%}
 .o .ly-do{display:block;color:var(--sai);font-weight:500;font-size:12.5px}
 .o .xem:empty{display:none}
@@ -874,6 +879,7 @@ function kiHieuCach(r) {
   return s;
 }
 var IC = {
+  sua: '<path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="m13.5 6.5 4 4"/>',
   phai: '<path d="m9 6 6 6-6 6"/>', trai: '<path d="m15 6-6 6 6 6"/>', tiep: '<path d="M5 12h14M13 6l6 6-6 6"/>',
   nguoi: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
   khoa: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
@@ -1105,6 +1111,9 @@ function veO(i, j, cheDo) { // cheDo: lam | khoa | loigiai | cham
   var L = S.lam, o = L.dong[i].o[j], g = L.gt[i][j], cls = 'o';
   if (cheDo === 'loigiai' || (L.goiY[i] && cheDo !== 'lam')) return '<span class="o-hien">' + texMot(o.hien) + '</span>';
   var mo = '<span class="CLS" data-i="' + i + '" data-j="' + j + '">';
+  var dangSua = cheDo === 'khoa' && L.sua && L.sua[0] === i && L.sua[1] === j;
+  if (dangSua) { cheDo = 'lam'; cls += ' dang-sua'; }
+  else if (cheDo === 'khoa' && !L.xong) cls += ' sua-duoc'; // chưa Hoàn thành: bấm vào để sửa
   if (cheDo !== 'lam') {
     var kq = cheDo === 'cham' ? MT.chamO(o, g) : null;
     if (kq) cls += kq.dung ? ' dung' : ' sai';
@@ -1157,6 +1166,7 @@ function veLam() {
     h += '<div class="the" id="bai-giai"><div class="dau-bai-giai"><b>Bài giải</b><span class="chip">' + (L.cur < L.dong.length ? 'Dòng ' + (L.cur + 1) + '/' + L.dong.length : 'Đã đến dòng cuối') + '</span></div>' +
       '<div class="thanh-dong"><i style="width:' + Math.round(100 * daXong / tongDong) + '%"></i></div>';
     for (var i = 0; i < L.dong.length; i++) {
+      if (i === 0 && L.khoa.some(Boolean)) h += '<p class="mo nho goi-y-sua">' + ic('sua') + 'Chưa bấm Hoàn thành thì em bấm vào ô đã điền để sửa lại.</p>';
       if (i < L.cur) h += veDong(i, 'khoa');
       else if (i === L.cur) { h += veDong(i, 'lam'); if (L.meo[i] && L.dong[i].meo) h += '<div class="meo">' + ic('goiy') + '<div>' + tex(L.dong[i].meo) + '</div></div>'; }
     }
@@ -1189,6 +1199,33 @@ function roiCau() {
 }
 
 function ganO(scope) {
+  scope.querySelectorAll('.o.sua-duoc[data-i]').forEach(function (sp) {
+    sp.onclick = function () {
+      S.lam.sua = [Number(sp.getAttribute('data-i')), Number(sp.getAttribute('data-j'))];
+      var y = sp.getBoundingClientRect().top; veLam();
+      var moi = app.querySelector('.o.dang-sua'); if (!moi) return;
+      window.scrollBy(0, moi.getBoundingClientRect().top - y);
+      var ip = moi.querySelector('input'); if (ip) { ip.focus(); try { ip.setSelectionRange(ip.value.length, ip.value.length); } catch (e) {} }
+    };
+  });
+  function xongSua() { // rời ô đang sửa: vẽ lại để các dòng sau, hình vẽ đổi theo
+    var L = S.lam; if (!L || !L.sua) return;
+    var a = document.activeElement; if (a && a.closest && a.closest('.o.dang-sua')) return;
+    var sp0 = app.querySelector('.o.dang-sua');
+    if (!sp0 || L.xong) { L.sua = null; return; } // đã sang trang khác (ví dụ bấm Hoàn thành)
+    var y = sp0.getBoundingClientRect().top;
+    L.sua = null; veLam();
+    var sp1 = sp0 && app.querySelector('.o[data-i="' + sp0.getAttribute('data-i') + '"][data-j="' + sp0.getAttribute('data-j') + '"]');
+    if (sp1 && y != null) window.scrollBy(0, sp1.getBoundingClientRect().top - y);
+  }
+  scope.querySelectorAll('.o.dang-sua').forEach(function (sp) {
+    var ip = sp.querySelector('input');
+    if (ip) {
+      ip.addEventListener('blur', function () { setTimeout(xongSua, 200); });
+      ip.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); ip.blur(); } });
+    }
+    sp.querySelectorAll('.chon-nut').forEach(function (b) { b.addEventListener('click', function () { setTimeout(function () { S.lam.sua = null; veLam(); }, 0); }); });
+  });
   scope.querySelectorAll('.o[data-i]').forEach(function (sp) {
     var i = Number(sp.getAttribute('data-i')), j = Number(sp.getAttribute('data-j')), o = S.lam.dong[i].o[j];
     var inp = sp.querySelector('input');
