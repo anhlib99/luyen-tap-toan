@@ -238,6 +238,15 @@ label{font-size:13.5px;font-weight:600;color:var(--mo);display:block;margin:12px
 .bang a{color:var(--chinh);font-weight:600;text-decoration:none}
 .bang code{font-size:12.5px;background:var(--the2);padding:2px 6px;border-radius:6px}
 .bang-cuon{overflow-x:auto;margin:0 -4px;padding:0 4px}
+.o-tk{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
+.o-tk>div{background:var(--the2);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:2px}
+.o-tk .so{font-size:22px;font-weight:800;color:var(--chinh)}
+.o-tk .mo{font-size:13px}
+.bang-kq td{vertical-align:middle}
+.bang-kq .cot-tk{background:var(--the2);white-space:nowrap}
+#ql-xep{width:auto;padding:6px 32px 6px 10px;font-size:14px;min-height:0}
+.bang-kq .hang-lop td{font-weight:700;border-top:2px solid var(--vien2)}
+.dau-dung{color:#16a34a;font-weight:800}
 .diem{display:inline-block;min-width:38px;text-align:center;font-weight:700;border-radius:8px;padding:2px 6px}
 .diem.d-tot{background:var(--dung2);color:var(--dung)}
 .diem.d-kha{background:var(--chinh2);color:var(--chinh)}
@@ -1840,7 +1849,8 @@ function veQuanLy() {
   var h = dauTrang() + '<div class="duong-dan"><a id="ql-ve">‹ Trang chủ (làm thử)</a></div><h2 class="tieu-de">Quản lý lớp</h2><p class="phu-de">Xem kết quả, những dòng học sinh hay sai và tạo tài khoản.</p><div class="tab" role="tablist">' +
     tabs.map(function (t) { return '<button data-t="' + t[0] + '" role="tab" aria-selected="' + (S.ql.tab === t[0]) + '" class="' + (S.ql.tab === t[0] ? 'chon' : '') + '">' + ic(t[2]) + t[1] + '</button>'; }).join('') + '</div>' +
     '<div class="the luoi-2"><div><label for="ql-lop" style="margin-top:0">Lớp</label><select id="ql-lop"><option>Đang tải…</option></select></div>' +
-    (S.ql.tab !== 'taikhoan' ? '<div><label for="ql-bai" style="margin-top:0">Bài</label><select id="ql-bai">' + danhSachBai().map(function (b, i) { return '<option value="' + i + '"' + (String(S.ql.bai) === String(i) ? ' selected' : '') + '>' + esc(b.nhan) + '</option>'; }).join('') + '</select></div>' : '') +
+    (S.ql.tab === 'ketqua' ? '<div><label for="ql-pham" style="margin-top:0">Thống kê</label><select id="ql-pham">' + luaChonPham() + '</select></div>' : '') +
+    (S.ql.tab === 'thongke' ? '<div><label for="ql-bai" style="margin-top:0">Bài</label><select id="ql-bai">' + danhSachBai().map(function (b, i) { return '<option value="' + i + '"' + (String(S.ql.bai) === String(i) ? ' selected' : '') + '>' + esc(b.nhan) + '</option>'; }).join('') + '</select></div>' : '') +
     '</div><div id="ql-noi"></div>';
   app.innerHTML = h; ganDau();
   document.getElementById('ql-ve').onclick = function () { veTrangChu([]); };
@@ -1855,13 +1865,15 @@ function veQuanLy() {
   }).catch(function (e) { document.getElementById('ql-noi').innerHTML = '<p class="loi">' + esc(e.message) + '</p>'; });
   chonLop.onchange = function () { S.ql.lop = chonLop.value; taiNoiDungQL(); };
   if (chonBai) chonBai.onchange = function () { S.ql.bai = chonBai.value; taiNoiDungQL(); };
+  var chonPham = document.getElementById('ql-pham');
+  if (chonPham) chonPham.onchange = function () { S.ql.pham = chonPham.value; if (/^b\|/.test(chonPham.value)) S.ql.bai = chonPham.value.slice(2); if (S.ql.du) veBangKetQua(document.getElementById('ql-noi')); else taiNoiDungQL(); };
 }
 function danhSachBai() {
   var ds = [], thay = {};
   DANG_TOAN.forEach(function (d) {
     var k = d.lop + '|' + d.bai;
-    if (!thay[k]) { thay[k] = { nhan: 'Lớp ' + d.lop + ' · ' + d.bai, cau: [] }; ds.push(thay[k]); }
-    d.cau.forEach(function (q) { thay[k].cau.push({ ma: q.maCau, ten: d.tenDang + ' · ' + q.ten, ngan: d.maDang.split('.').pop() + '.' + (q.kpi ? 'KPI' : q.ten.replace('Câu ', 'C')) }); });
+    if (!thay[k]) { thay[k] = { nhan: 'Lớp ' + d.lop + ' · ' + d.bai, bai: d.bai, lop: d.lop, chuong: d.chuong, cau: [] }; ds.push(thay[k]); }
+    d.cau.forEach(function (q) { thay[k].cau.push({ ma: q.maCau, kpi: !!q.kpi, ten: d.tenDang + ' · ' + q.ten, ngan: d.maDang.split('.').pop() + '.' + (q.kpi ? 'KPI' : q.ten.replace('Câu ', 'C')) }); });
   });
   return ds;
 }
@@ -1876,22 +1888,118 @@ function taiNoiDungQL() {
   }).catch(function (e) { noi.innerHTML = '<p class="loi">' + esc(e.message) + '</p>'; });
 }
 function baiDangChon() { return danhSachBai()[Number(S.ql.bai || 0)] || { cau: [] }; }
+function danhSachChuong() {
+  var ds = [], thay = {};
+  danhSachBai().forEach(function (b, i) {
+    var k = b.lop + '|' + b.chuong;
+    if (!thay[k]) { thay[k] = { khoa: k, nhan: 'Lớp ' + b.lop + ' · ' + b.chuong, ngan: 'L' + b.lop + ' · ' + b.chuong.split('.')[0], bai: [] }; ds.push(thay[k]); }
+    thay[k].bai.push(i);
+  });
+  return ds;
+}
+function phamDangChon() {
+  var p = S.ql.pham;
+  if (!p) p = S.ql.pham = 'b|' + (S.ql.bai || 0);
+  return p;
+}
+function luaChonPham() {
+  var p = phamDangChon(), o = function (v, n) { return '<option value="' + esc(v) + '"' + (p === v ? ' selected' : '') + '>' + esc(n) + '</option>'; };
+  return o('tat', 'Toàn bộ các bài') +
+    '<optgroup label="Theo chương">' + danhSachChuong().map(function (c) { return o('c|' + c.khoa, c.nhan); }).join('') + '</optgroup>' +
+    '<optgroup label="Theo bài">' + danhSachBai().map(function (b, i) { return o('b|' + i, b.nhan); }).join('') + '</optgroup>';
+}
+// Thống kê một nhóm câu của một học sinh: số câu đúng (có lượt điền đúng kết quả cuối cùng và đạt từ 50%) / tổng số câu, % trung bình (câu chưa làm tính 0%). Không tính câu Vượt KPI.
+// Lượt làm có điền đúng kết quả cuối cùng không (ô của dòng cuối cùng có ô điền, em tự điền, không mở gợi ý)
+function kqCuoiDung(r) {
+  if (r._kqd !== undefined) return r._kqd;
+  var ct = {}; try { ct = JSON.parse(r.chiTiet || '{}'); } catch (e) {}
+  if (r.cach === 'dapan' || ct.c === 'dapan') return (r._kqd = !r.chuaXong);
+  var t = timCau(r.maCau); if (!t || !ct.d) return (r._kqd = false);
+  try {
+    var p = t.cau.tao(Number(r.seed)), mau = t.cau.dong(p);
+    var gt = mau.map(function (d, i) { return (ct.d[i] && ct.d[i].g) || (d.o || []).map(function () { return ''; }); });
+    var dong = t.cau.dong(p, { gt: gt, khoa: mau.map(function () { return true; }), goiY: mau.map(function (d, i) { return !!(ct.d[i] && ct.d[i].y); }) });
+    for (var i = dong.length - 1; i >= 0; i--) if (dong[i].o && dong[i].o.length) {
+      var g = ct.d[i];
+      return (r._kqd = !!(g && !g.y && dong[i].o.every(function (o, j) { return MT.chamO(o, (g.g || [])[j]).dung; })));
+    }
+  } catch (e) {}
+  return (r._kqd = false);
+}
+function tkNhom(tot, tk, cau) {
+  var chinh = cau.filter(function (c) { return !c.kpi; }), kpi = cau.filter(function (c) { return c.kpi; }), tong = 0, dung = 0, daLam = 0, kpiDung = 0;
+  chinh.forEach(function (c) { var r = tot[tk.toLowerCase() + '|' + c.ma]; if (r) { daLam++; tong += r.muc; if (r.dung) dung++; } });
+  kpi.forEach(function (c) { var r = tot[tk.toLowerCase() + '|' + c.ma]; if (r && r.dung) kpiDung++; });
+  return { dung: dung, soCau: chinh.length, daLam: daLam, tb: chinh.length ? Math.round(tong / chinh.length) : 0, kpiDung: kpiDung, soKpi: kpi.length };
+}
+function oTK(t, nho) {
+  if (!t.soCau) return '<span class="mo">–</span>';
+  return '<b>' + t.dung + '/' + t.soCau + '</b>' + (nho ? ' <span class="diem ' + lopDiem(t.tb) + '">' + t.tb + '%</span>' : '');
+}
 function veBangKetQua(noi) {
-  var du = S.ql.du, bai = baiDangChon(), tot = {};
+  var du = S.ql.du, ds = danhSachBai(), pham = phamDangChon(), tot = {};
   du.kq.forEach(function (r) {
-    var k = r.tk.toLowerCase() + '|' + r.maCau, c = tot[k];
-    if (!c || r.muc > c.muc) tot[k] = r;
+    var k = r.tk.toLowerCase() + '|' + r.maCau, c = tot[k], d = r.muc >= 50 && kqCuoiDung(r);
+    if (!c || r.muc > c.muc) tot[k] = { muc: r.muc, cach: r.cach, soGoiY: r.soGoiY, xemTB: r.xemTB, dung: (c && c.dung) || d };
+    else if (d) c.dung = true;
   });
-  var h = '<div class="the"><div class="mo">' + bai.cau.map(function (c) { return '<b>' + esc(c.ngan) + '</b>: ' + esc(c.ten); }).join('<br>') + '</div><div class="mo" style="margin-top:6px">Mỗi ô là lần làm cao nhất. Kí hiệu: Đ giải đầy đủ, A chỉ điền đáp án, G có mở gợi ý, X có xem toàn bộ lời giải. Bấm tên học sinh để xem chi tiết.</div>' +
-    '<div class="bang-cuon"><table class="bang"><tr><th>Học sinh</th>' + bai.cau.map(function (c) { return '<th title="' + esc(c.ten) + '">' + esc(c.ngan) + '</th>'; }).join('') + '</tr>';
-  du.hs.forEach(function (hs) {
-    h += '<tr><td><a href="#" data-tk="' + esc(hs.tk) + '">' + esc(hs.hoTen) + '</a></td>' + bai.cau.map(function (c) {
+  // Các cột nhóm: theo bài thì từng câu; theo chương thì từng bài; toàn bộ thì từng chương
+  var cot = [], tatCa = [], tieuDe, giaiThich;
+  if (pham === 'tat') {
+    tieuDe = 'Toàn bộ các bài';
+    danhSachChuong().forEach(function (c) {
+      var cau = []; c.bai.forEach(function (i) { cau = cau.concat(ds[i].cau); });
+      cot.push({ nhan: c.ngan, ten: c.nhan, cau: cau }); tatCa = tatCa.concat(cau);
+    });
+  } else if (/^c\|/.test(pham)) {
+    var ch = danhSachChuong().filter(function (c) { return 'c|' + c.khoa === pham; })[0] || danhSachChuong()[0];
+    tieuDe = ch.nhan;
+    ch.bai.forEach(function (i) { cot.push({ nhan: ds[i].bai.split('.')[0], ten: ds[i].bai, cau: ds[i].cau }); tatCa = tatCa.concat(ds[i].cau); });
+  } else {
+    var bai = ds[Number(pham.slice(2))] || ds[0] || { cau: [], nhan: '' };
+    tieuDe = bai.nhan; tatCa = bai.cau;
+    giaiThich = bai.cau.map(function (c) { return '<b>' + esc(c.ngan) + '</b>: ' + esc(c.ten); }).join('<br>');
+  }
+  var theoBai = !/^c\||^tat$/.test(pham), soCau = tatCa.filter(function (c) { return !c.kpi; }).length, coKpi = tatCa.some(function (c) { return c.kpi; });
+  var hang = du.hs.map(function (hs) { return { hs: hs, t: tkNhom(tot, hs.tk, tatCa) }; });
+  var xep = S.ql.xep || 'ten';
+  if (xep === 'cao') hang.sort(function (a, b) { return b.t.tb - a.t.tb || b.t.dung - a.t.dung; });
+  if (xep === 'thap') hang.sort(function (a, b) { return a.t.tb - b.t.tb || a.t.dung - b.t.dung; });
+  var n = hang.length, tbLop = n ? Math.round(hang.reduce(function (s, x) { return s + x.t.tb; }, 0) / n) : 0;
+  var dungHet = hang.filter(function (x) { return x.t.soCau && x.t.dung === x.t.soCau; }).length, chuaLam = hang.filter(function (x) { return !x.t.daLam; }).length;
+  var h = '<div class="the"><h3 style="margin:0 0 10px;font-size:16px">' + esc(tieuDe) + '</h3><div class="o-tk">' +
+    '<div><span class="so">' + soCau + '</span><span class="mo">câu' + (coKpi ? ' (không tính Vượt KPI)' : '') + '</span></div>' +
+    '<div><span class="so">' + tbLop + '%</span><span class="mo">trung bình cả lớp</span></div>' +
+    '<div><span class="so">' + dungHet + '/' + n + '</span><span class="mo">bạn đúng hết</span></div>' +
+    '<div><span class="so">' + chuaLam + '/' + n + '</span><span class="mo">bạn chưa làm câu nào</span></div></div></div>';
+  h += '<div class="the">' + (giaiThich ? '<div class="mo">' + giaiThich + '</div>' : '') +
+    '<div class="mo" style="margin-top:6px"><b>Đúng</b>: số câu điền đúng kết quả cuối cùng và đạt từ 50% trở lên (dấu ✓), trên tổng số câu. <b>TB</b>: trung bình % của tất cả các câu, câu chưa làm tính 0%. Câu Vượt KPI không tính vào hai cột này' + (coKpi ? ', xem riêng ở cột KPI' : '') + '. ' +
+    (theoBai ? 'Ô từng câu là lần làm cao nhất. Kí hiệu: Đ giải đầy đủ, A chỉ điền đáp án, G có mở gợi ý, X có xem toàn bộ lời giải. ' : 'Ô từng ' + (pham === 'tat' ? 'chương' : 'bài') + ' ghi số câu đúng và % trung bình của phần đó. ') + 'Bấm tên học sinh để xem chi tiết.</div>' +
+    '<div class="hang-nut" style="align-items:center"><label for="ql-xep" style="margin:0" class="mo">Sắp xếp</label><select id="ql-xep" style="width:auto">' +
+    [['ten', 'Theo tên'], ['cao', 'TB cao xuống thấp'], ['thap', 'TB thấp lên cao']].map(function (o) { return '<option value="' + o[0] + '"' + (xep === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>' +
+    '<div class="bang-cuon"><table class="bang bang-kq"><tr><th>Học sinh</th>' +
+    (theoBai ? tatCa.map(function (c) { return '<th title="' + esc(c.ten) + '">' + esc(c.ngan) + '</th>'; }).join('') : cot.map(function (c) { return '<th title="' + esc(c.ten) + '">' + esc(c.nhan) + '</th>'; }).join('')) +
+    '<th class="cot-tk">Đúng</th><th class="cot-tk">TB</th>' + (coKpi && !theoBai ? '<th>KPI</th>' : '') + '</tr>';
+  hang.forEach(function (x) {
+    var hs = x.hs;
+    h += '<tr><td><a href="#" data-tk="' + esc(hs.tk) + '">' + esc(hs.hoTen) + '</a></td>' + (theoBai ? tatCa.map(function (c) {
       var r = tot[hs.tk.toLowerCase() + '|' + c.ma];
-      return '<td style="white-space:nowrap">' + (r ? '<span class="diem ' + lopDiem(r.muc) + '">' + r.muc + '</span> <span class="mo nho">' + kiHieuCach(r) + '</span>' : '<span class="mo">–</span>') + '</td>';
-    }).join('') + '</tr>';
+      return '<td style="white-space:nowrap">' + (r ? '<span class="diem ' + lopDiem(r.muc) + '">' + r.muc + '</span> <span class="mo nho">' + kiHieuCach(r) + '</span>' + (r.dung ? ' <span class="dau-dung" title="Tính là câu đúng">✓</span>' : '') : '<span class="mo">–</span>') + '</td>';
+    }).join('') : cot.map(function (c) { return '<td style="white-space:nowrap">' + oTK(tkNhom(tot, hs.tk, c.cau), true) + '</td>'; }).join('')) +
+      '<td class="cot-tk" style="white-space:nowrap"><b>' + x.t.dung + '/' + x.t.soCau + '</b></td><td class="cot-tk"><span class="diem ' + lopDiem(x.t.tb) + '">' + x.t.tb + '%</span></td>' +
+      (coKpi && !theoBai ? '<td>' + (x.t.kpiDung ? '<b>' + x.t.kpiDung + '/' + x.t.soKpi + '</b>' : '<span class="mo">–</span>') + '</td>' : '') + '</tr>';
   });
+  if (n) h += '<tr class="hang-lop"><td>Trung bình lớp</td>' + (theoBai ? tatCa.map(function (c) {
+      var m = Math.round(du.hs.reduce(function (s, hs) { var r = tot[hs.tk.toLowerCase() + '|' + c.ma]; return s + (r ? r.muc : 0); }, 0) / n);
+      return '<td><span class="diem ' + lopDiem(m) + '">' + m + '</span></td>';
+    }).join('') : cot.map(function (c) {
+      var m = Math.round(du.hs.reduce(function (s, hs) { return s + tkNhom(tot, hs.tk, c.cau).tb; }, 0) / n);
+      return '<td><span class="diem ' + lopDiem(m) + '">' + m + '%</span></td>';
+    }).join('')) +
+    '<td class="cot-tk">' + (Math.round(10 * hang.reduce(function (s, x) { return s + x.t.dung; }, 0) / n) / 10).toString().replace('.', ',') + '/' + soCau + '</td><td class="cot-tk"><span class="diem ' + lopDiem(tbLop) + '">' + tbLop + '%</span></td>' + (coKpi && !theoBai ? '<td></td>' : '') + '</tr>';
   h += '</table></div></div>';
   noi.innerHTML = h;
+  document.getElementById('ql-xep').onchange = function () { S.ql.xep = this.value; veBangKetQua(noi); };
   noi.querySelectorAll('a[data-tk]').forEach(function (a) { a.onclick = function (e) { e.preventDefault(); veChiTietHS(a.getAttribute('data-tk')); }; });
 }
 function veChiTietHS(tk) {
