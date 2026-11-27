@@ -61,6 +61,7 @@ h1,h2,h3{line-height:1.25;letter-spacing:-.01em}
 .phu-de{color:var(--mo);font-size:14px;margin:0 0 10px}
 .mo{color:var(--mo);font-size:14px}
 .nho{font-size:13px}
+.chu-thich{color:var(--mo);font-style:italic}
 .loi{color:var(--sai);font-size:14px;min-height:1px}
 .duong-dan{display:flex;flex-wrap:wrap;align-items:center;gap:4px;font-size:13px;color:var(--mo);margin:2px 0 8px}
 .duong-dan a{color:var(--chinh);text-decoration:none;cursor:pointer;font-weight:600;padding:3px 9px;border-radius:99px;background:var(--chinh2)}
@@ -185,13 +186,15 @@ label{font-size:13.5px;font-weight:600;color:var(--mo);display:block;margin:12px
 .dong.hien-tai{background:var(--chinh2);border-color:var(--chinh3);box-shadow:0 0 0 4px color-mix(in srgb,var(--chinh2) 60%,transparent)}
 .dong.goi-y{background:var(--vang2);border-color:color-mix(in srgb,var(--vang) 30%,transparent)}
 .dong .so-dong{display:inline-grid;place-items:center;min-width:22px;height:22px;border-radius:99px;background:var(--the2);font-size:11px;font-weight:700;color:var(--mo);margin-right:8px;vertical-align:1px}
-.o{display:inline-block;vertical-align:middle;margin:2px 2px;line-height:1.4}
+.o{display:inline-block;vertical-align:middle;margin:2px 2px;line-height:1.4;max-width:100%}
 .o input{max-width:100%;padding:6px 10px;border:2px solid var(--chinh3);border-radius:10px;font:inherit;background:var(--the);color:var(--chu);min-height:40px}
 .o input:focus{border-color:var(--chinh)}
 .o input:disabled{background:var(--the2);color:var(--chu);border-color:var(--vien)}
 .o .xem{display:block;font-size:13px;min-height:0;color:var(--mo);padding-left:2px}
 .o.dung input,.o.dung .chon-nut.da{border-color:var(--dung);background:var(--dung2)}
 .o.sai input,.o.sai .chon-nut.da{border-color:var(--sai);background:var(--sai2)}
+.pt-hang.vua{white-space:nowrap;overflow:hidden}
+.pt-hang.vua .o{max-width:none}
 .o-chip{display:inline-flex;align-items:center;gap:5px;padding:4px 11px;border-radius:10px;background:var(--the);border:1.5px solid var(--vien2);min-height:38px}
 .o.dung .o-chip{border-color:var(--dung);background:var(--dung2);color:var(--dung)}
 .o.dung .o-chip .gt{color:var(--chu)}
@@ -806,6 +809,366 @@ var DANG_TOAN = window.DANG_TOAN || [];
   });
 })();
 
+/* ---------- Lớp 10 - Chương IV - Bài 8 - Dạng: tổng hợp lực ---------- */
+(function () {
+  // Bộ số (thầy đã duyệt 27/11/2026): |F1|, |F2| là bội của 50 từ 100 đến 500, khác nhau.
+  // Góc giữa hai lực (thầy chọn 27/11/2026): góc đặc biệt dưới 90°: 30°, 45°, 60°. Góc kề 150°, 135°, 120°.
+  // OC² = F1² + F2² + 2.F1.F2.cos(góc) = F1² + F2² + F1.F2.√3 (30°), + F1.F2.√2 (45°), + F1.F2 (60°, số nguyên).
+  // Bỏ bộ số cho OC tròn (dòng "≈" vô nghĩa) và bộ số có phần thập phân sát 0,5.
+  var CAN_GOC = { 30: 3, 45: 2, 60: 1 };
+  var BO_SO = [];
+  [30, 45, 60].forEach(function (goc) {
+    for (var a = 2; a <= 10; a++) {
+      for (var b = 2; b <= 10; b++) {
+        if (a === b) continue;
+        var s0 = a * a + b * b + a * b * Math.sqrt(CAN_GOC[goc]), r0 = Math.round(Math.sqrt(s0));
+        if (Math.abs(r0 * r0 - s0) < 1e-9) continue;
+        var v0 = 50 * Math.sqrt(s0), f0 = v0 - Math.floor(v0);
+        if (Math.abs(f0 - 0.5) < 0.05) continue;
+        BO_SO.push([50 * a, 50 * b, goc]);
+      }
+    }
+  });
+
+  function tao(seed) {
+    var q = BO_SO[seed % BO_SO.length];
+    var p = { seed: seed, F1: q[0], F2: q[1], goc: q[2] };
+    p.ke = 180 - p.goc;                                   // góc kề (OBC)
+    p.nguyen = p.F1 * p.F1 + p.F2 * p.F2;                 // phần số nguyên của OC²
+    p.heSo = p.F1 * p.F2;                                 // hệ số trước căn (góc 60° thì cộng thẳng vào)
+    p.can = CAN_GOC[p.goc] === 1 ? 0 : CAN_GOC[p.goc];    // số dưới căn; 0: OC² là số nguyên
+    p.OC2 = p.can ? p.nguyen + p.heSo * Math.sqrt(p.can) : p.nguyen + p.heSo;
+    p.hienOC2 = p.can ? p.nguyen + '+' + (p.heSo === 1 ? '' : p.heSo) + '\\sqrt{' + p.can + '}' : '' + p.OC2;
+    p.goOC2 = p.can ? p.nguyen + '+' + (p.heSo === 1 ? '' : p.heSo) + 'can(' + p.can + ')' : '' + p.OC2;
+    p.OC = Math.sqrt(p.OC2);
+    p.tron = Math.round(p.OC);
+    return p;
+  }
+  // Toạ độ (đơn vị lực) của ngọn F2 theo góc giữa hai lực, trục y hướng lên
+  function ngonF2(p) { var r = p.goc * Math.PI / 180; return [p.F2 * Math.cos(r), p.F2 * Math.sin(r)]; }
+  // Chỗ đặt nhãn số đo góc: giữa khe rộng hơn trong hai khe (OA, OC) và (OC, OB), đủ xa đỉnh để chữ rộng w (px) lọt giữa hai mũi tên
+  function choNhan(p, x0, y0, r0, w) {
+    var nb = ngonF2(p), oc = Math.atan2(nb[1], p.F1 + nb[0]), g = p.goc * Math.PI / 180;
+    var a = oc > g - oc ? oc / 2 : (oc + g) / 2, khe = Math.max(oc, g - oc);
+    var r = Math.min(Math.max(r0, (w / 2 + 3) / Math.sin(khe / 2)), r0 + 16); // góc hẹp (30°): không đẩy nhãn ra quá xa cung, viền trắng che nét bên dưới
+    return [x0 + r * Math.cos(a), y0 - r * Math.sin(a)];
+  }
+
+  /* --- đọc cách gõ tên điểm, đoạn thẳng, góc --- */
+  function gon(g) { return String(g == null ? '' : g).replace(/\s+/g, '').toUpperCase(); }
+  function chu1(g) { var s = gon(g); return /^[A-Z]$/.test(s) ? s : null; }
+  function docDoan(g) { var s = gon(g); return /^[A-Z]{2}$/.test(s) && s[0] !== s[1] ? s : null; }
+  function cungDoan(s, t) { return !!s && (s === t || s === t[1] + t[0]); }
+  function docGoc(g) { // goc(AOB), gocAOB, ∠AOB, ^AOB, AOB -> 'AOB'
+    var s = gon(g).replace(/^GOC/, '').replace(/^[∠^]/, '');
+    var m = /^\((.*)\)$/.exec(s); if (m) s = m[1];
+    return /^[A-Z]{3}$/.test(s) && s[0] !== s[1] && s[1] !== s[2] && s[0] !== s[2] ? s : null;
+  }
+  function cungGoc(s, t) { return !!s && s[1] === t[1] && ((s[0] === t[0] && s[2] === t[2]) || (s[0] === t[2] && s[2] === t[0])); }
+  function cungTap(s, t) { return !!s && s.length === t.length && s.split('').sort().join('') === t.split('').sort().join(''); }
+  function docTong(g) { // vt(OA)+vt(OB) -> ['OA','OB'] hoặc null
+    var ps = String(g == null ? '' : g).replace(/\s+/g, '').split('+');
+    if (ps.length !== 2) return null;
+    var x = MT.docVectoTen(ps[0]), y = MT.docVectoTen(ps[1]);
+    return x && y ? [x, y] : null;
+  }
+  var V = function (x) { return '\\overrightarrow{' + x + '}'; };
+  var G = function (x) { return '\\widehat{' + x + '}'; };
+
+  // Tên điểm học sinh tự đặt (mặc định như bài giải của thầy: O, A, B, C; OACB là hình bình hành).
+  // Dòng "Dựng hình": OX = F1, OY = F2. Z là đỉnh thứ tư (dòng "Hợp lực").
+  // ke = 'Y' (dùng góc OBC, tam giác OBC) hoặc 'X' (góc OAC, tam giác OAC), theo dòng "Ta có" của em.
+  var D_DAT = 0, D_DUNG = 1, D_GOC = 2, D_HOP = 3, D_F = 4, D_TACO = 5, D_SUY = 6, D_TG = 7;
+  function tenDiem(st) {
+    var gt = st && st.gt, O = (gt && chu1(gt[D_DAT] && gt[D_DAT][0])) || 'O';
+    var X = null, Y = null, Z = null;
+    if (gt && gt[D_DUNG]) {
+      var x = MT.docVectoTen(gt[D_DUNG][0]), y = MT.docVectoTen(gt[D_DUNG][1]);
+      if (x && y && x[0] === O && y[0] === O && x[1] !== y[1]) { X = x[1]; Y = y[1]; }
+    }
+    var con = ['A', 'B', 'C', 'D', 'E', 'M', 'N', 'P', 'Q'].filter(function (c) { return c !== O && c !== X && c !== Y; });
+    var dungXY = !!X;
+    if (!X) { X = con.shift(); Y = con.shift(); }
+    var z = gt && gt[D_HOP] ? MT.docVectoTen(gt[D_HOP][2]) : null;
+    if (z && z[0] === O && z[1] !== X && z[1] !== Y && z[1] !== O) Z = z[1];
+    var dungZ = !!Z;
+    if (!Z) Z = con.filter(function (c) { return c !== X && c !== Y; })[0];
+    var T = { O: O, X: X, Y: Y, Z: Z, dung: { O: !!(gt && chu1(gt[D_DAT] && gt[D_DAT][0])), XY: dungXY, Z: dungZ } };
+    T.gocO = X + O + Y; T.keX = O + X + Z; T.keY = O + Y + Z;
+    T.ke = 'Y';
+    if (gt) {
+      var thu = [gt[D_TACO] && gt[D_TACO][0], gt[D_TACO] && gt[D_TACO][1], gt[D_SUY] && gt[D_SUY][0]];
+      for (var k = 0; k < thu.length; k++) {
+        var gk = docGoc(thu[k]);
+        if (cungGoc(gk, T.keX)) { T.ke = 'X'; break; }
+        if (cungGoc(gk, T.keY)) { T.ke = 'Y'; break; }
+      }
+    }
+    var D = T.ke === 'Y' ? Y : X;
+    T.D = D; T.K = O + D + Z; T.tg = O + D + Z;
+    T.c1 = O + D; T.c2 = D + Z;          // hai cạnh kề góc: OB, BC (hoặc OA, AC)
+    return T;
+  }
+
+  /* --- hình trong lời giải: sau dòng Dựng hình hiện hai vectơ; sau dòng Hợp lực hiện cả hình bình hành.
+         Tên điểm, số đo góc, độ dài chỉ hiện khi em điền đúng --- */
+  function hinhBBH(p, T, hien) {
+    var nb = ngonF2(p), minX = Math.min(0, nb[0]), maxX = Math.max(p.F1, p.F1 + nb[0]);
+    var k = Math.min(200 / (maxX - minX), 120 / nb[1]), x0 = 34 - minX * k, y0 = 160;
+    var A = [x0 + p.F1 * k, y0], B = [x0 + nb[0] * k, y0 - nb[1] * k], C = [A[0] + B[0] - x0, B[1]];
+    var W = Math.ceil(Math.max(A[0], C[0]) + 34), H = y0 + 44, y1 = Math.floor(B[1] - 30), xTrai = Math.floor(Math.min(0, x0 + (B[0] - x0) / 2 - 66, B[0] - 24));
+    var nav = '#1d2b4f', xd = '#1f3f8f', dd = '#b03a2e';
+    function mui(P, Q, mau) {
+      var g = Math.atan2(Q[1] - P[1], Q[0] - P[0]), l = 10;
+      return '<line x1="' + P[0] + '" y1="' + P[1] + '" x2="' + Q[0] + '" y2="' + Q[1] + '" stroke="' + mau + '" stroke-width="2"/>' +
+        '<polygon points="' + Q[0] + ',' + Q[1] + ' ' + (Q[0] - l * Math.cos(g - 0.4)) + ',' + (Q[1] - l * Math.sin(g - 0.4)) + ' ' + (Q[0] - l * Math.cos(g + 0.4)) + ',' + (Q[1] - l * Math.sin(g + 0.4)) + '" fill="' + mau + '"/>';
+    }
+    function nhan(x, y, s) { return '<text x="' + x + '" y="' + y + '" font-size="15" font-style="italic" fill="' + nav + '">' + s + '</text>'; }
+    function nhanVecto(x, y, ten, mau) { // F1 có mũi tên trên đầu
+      return '<text x="' + x + '" y="' + y + '" font-size="14" font-style="italic" fill="' + mau + '">F<tspan font-size="10" dy="3">' + ten + '</tspan></text>' +
+        '<path d="M' + (x - 1) + ',' + (y - 14) + ' h12 m-3,-3 l3,3 l-3,3" fill="none" stroke="' + mau + '" stroke-width="1.1"/>';
+    }
+    var rongND = W - xTrai, rongVB = Math.max(rongND, 320), xVB = xTrai - (rongVB - rongND) / 2; // khung rộng tối thiểu để chữ không bị phóng to
+    var s = '<svg viewBox="' + xVB + ' ' + y1 + ' ' + rongVB + ' ' + (H - y1) + '" class="hinh hinh-nho" role="img" aria-label="' + (hien.bbh ? 'Hình bình hành ' + T.O + T.X + T.Z + T.Y : 'Hai vectơ lực đặt tại ' + T.O) + '">';
+    if (hien.bbh) {
+      s += '<line x1="' + B[0] + '" y1="' + B[1] + '" x2="' + C[0] + '" y2="' + C[1] + '" stroke="' + nav + '" stroke-width="1.5"/>';
+      s += '<line x1="' + A[0] + '" y1="' + A[1] + '" x2="' + C[0] + '" y2="' + C[1] + '" stroke="' + nav + '" stroke-width="1.5"/>';
+    }
+    s += mui([x0, y0], A, xd) + mui([x0, y0], B, xd) + (hien.bbh ? mui([x0, y0], C, dd) : '');
+    var rc = Math.min(22, 0.45 * Math.min(A[0] - x0, p.F2 * k)), gr = p.goc * Math.PI / 180, cn = choNhan(p, x0, y0, rc + 13, 22); // cung góc không đè lên mũi tên ngắn
+    s += '<path d="M' + (x0 + rc) + ',' + y0 + ' A' + rc + ',' + rc + ' 0 0 0 ' + (x0 + rc * Math.cos(gr)) + ',' + (y0 - rc * Math.sin(gr)) + '" fill="none" stroke="' + nav + '" stroke-width="1.2"/>';
+    if (hien.goc) s += '<text x="' + cn[0] + '" y="' + (cn[1] + 4) + '" text-anchor="middle" font-size="11.5" fill="' + nav + '" stroke="#fff" stroke-width="3" paint-order="stroke">' + p.goc + '°</text>';
+    [[x0, y0], A, B].concat(hien.bbh ? [C] : []).forEach(function (P) { s += '<circle cx="' + P[0] + '" cy="' + P[1] + '" r="2.8" fill="' + nav + '"/>'; });
+    if (hien.O) s += nhan(x0 - 16, y0 + 16, T.O);
+    if (hien.XY) { s += nhan(A[0] + 2, A[1] + 18, T.X); s += nhan(B[0] - 14, B[1] - 6, T.Y); }
+    if (hien.bbh && hien.Z) s += nhan(C[0] + 6, C[1] - 4, T.Z);
+    var m1 = x0 + (A[0] - x0) / 2, m2 = [x0 + (B[0] - x0) / 2, y0 + (B[1] - y0) / 2];
+    s += nhanVecto(m1 - 7, y0 + 20, '1', xd);
+    s += nhanVecto(m2[0] - 24, m2[1] + 2, '2', xd);
+    var so = ' font-size="12.5" font-weight="bold" fill="' + xd + '" stroke="#fff" stroke-width="4" paint-order="stroke" text-anchor="middle"';
+    if (hien.d1) s += '<text x="' + m1 + '" y="' + (y0 + 36) + '"' + so + '>' + p.F1 + '</text>';
+    if (hien.d2) s += '<text x="' + (m2[0] - 46) + '" y="' + (m2[1] + 18) + '"' + so + '>' + p.F2 + '</text>';
+    s += '</svg>';
+    return s;
+  }
+
+  /* --- hình của đề: theo hình trong file Word của thầy (màu), đúng tỉ lệ bộ số --- */
+  function hinhDe(p) {
+    var nb = ngonF2(p), minX = Math.min(0, nb[0]), maxX = Math.max(p.F1, p.F1 + nb[0]);
+    var k = Math.min(230 / (maxX - minX), 165 / nb[1]), x0 = 40 - minX * k, y0 = 200;
+    var A = [x0 + p.F1 * k, y0], B = [x0 + nb[0] * k, y0 - nb[1] * k], C = [A[0] + B[0] - x0, B[1]];
+    var W = Math.ceil(Math.max(C[0], A[0]) + 30), y1 = Math.floor(B[1] - 18), xL = Math.floor(Math.min(0, x0 + (B[0] - x0) * 0.5 - 50, B[0] - 20));
+    var rA = Math.min(40, 0.4 * Math.min(p.F1, p.F2) * k), gr = p.goc * Math.PI / 180, cn = choNhan(p, x0, y0, rA + 18, 34);
+    function mui(Q, mau) {
+      var g = Math.atan2(Q[1] - y0, Q[0] - x0), l = 16, P = [Q[0] - l * 0.8 * Math.cos(g), Q[1] - l * 0.8 * Math.sin(g)];
+      return '<line x1="' + x0 + '" y1="' + y0 + '" x2="' + P[0] + '" y2="' + P[1] + '" stroke="' + mau + '" stroke-width="5" stroke-linecap="round"/>' +
+        '<polygon points="' + Q[0] + ',' + Q[1] + ' ' + (Q[0] - l * Math.cos(g - 0.38)) + ',' + (Q[1] - l * Math.sin(g - 0.38)) + ' ' + (Q[0] - l * Math.cos(g + 0.38)) + ',' + (Q[1] - l * Math.sin(g + 0.38)) + '" fill="' + mau + '"/>';
+    }
+    function nhan(x, y, ten, mau) {
+      return '<text x="' + x + '" y="' + y + '" font-family="Times New Roman, Liberation Serif, serif" font-size="22" font-style="italic" fill="' + mau + '">F' +
+        (ten ? '<tspan font-size="15" dy="5">' + ten + '</tspan>' : '') + '</text>' +
+        '<path d="M' + (x + 1) + ',' + (y - 20) + ' h15 m-4,-4 l4,4 l-4,4" fill="none" stroke="' + mau + '" stroke-width="1.5"/>';
+    }
+    var lam = '#1E6FD9', luc = '#2A9D4B', doF = '#EF5B5B', cam = '#F39C12';
+    var s = '<svg viewBox="' + xL + ' ' + y1 + ' ' + (W - xL) + ' ' + (y0 + 44 - y1) + '" class="hinh" role="img" aria-label="Hai lực F1, F2 hợp với nhau góc ' + p.goc + ' độ và hợp lực F">';
+    s += '<path d="M' + (x0 + rA) + ',' + y0 + ' A' + rA + ',' + rA + ' 0 0 0 ' + (x0 + rA * Math.cos(gr)) + ',' + (y0 - rA * Math.sin(gr)) + '" fill="none" stroke="' + cam + '" stroke-width="3"/>';
+    s += '<text x="' + cn[0] + '" y="' + (cn[1] + 7) + '" text-anchor="middle" font-family="Times New Roman, Liberation Serif, serif" font-size="20" fill="' + cam + '" stroke="#fff" stroke-width="4" paint-order="stroke">' + p.goc + '°</text>';
+    s += mui(C, doF) + mui(B, luc) + mui(A, lam);
+    s += '<circle cx="' + x0 + '" cy="' + y0 + '" r="6" fill="#1B1F4B"/>';
+    s += nhan(x0 + (A[0] - x0) * 0.5 - 8, y0 + 34, '1', lam);
+    s += nhan(x0 + (B[0] - x0) * 0.5 - 38, y0 + (B[1] - y0) * 0.5 + 6, '2', luc);
+    s += nhan(x0 + (C[0] - x0) * 0.62 + 4, y0 + (C[1] - y0) * 0.62 + 30, '', doF);
+    s += '</svg>';
+    return s;
+  }
+
+  /* --- ô có cách chấm riêng --- */
+  function oChu(d) { return { k: 'chu', d: [d], hien: d, go: d, kiemTra: function (g) { return !!chu1(g); } }; }
+  function oDoan(d, mu) { // đoạn thẳng (OA hay AO đều đúng), mu: có bình phương
+    return { k: 'doan', d: [d], hien: d + (mu ? '^2' : ''), go: d + (mu ? '^2' : ''),
+      xemTruoc: function (g) { var s = gon(g).replace(/²/g, '^2'); var m = /^([A-Z]{2})(\^2)?$/.exec(s); return m ? m[1] + (m[2] ? '^2' : '') : null; },
+      kiemTra: function (g) {
+        var s = gon(g).replace(/²/g, '^2');
+        if (mu) { var m = /^([A-Z]{2})\^2$/.exec(s); return !!m && cungDoan(m[1], d); }
+        return cungDoan(docDoan(s), d);
+      } };
+  }
+  function oGoc(hien, kiemTra) {
+    return { k: 'goc', d: [hien], hien: G(hien), go: 'goc(' + hien + ')', kiemTra: function (g) { return kiemTra(docGoc(g)); },
+      xemTruoc: function (g) { var x = docGoc(g); return x ? G(x) : null; } };
+  }
+  function oGocHaySo(hien, kiemTra, soDo) { // thầy duyệt: ghi tên góc hay số đo của góc đều đúng
+    return { k: 'goc', d: [hien], hien: G(hien), go: 'goc(' + hien + ')',
+      kiemTra: function (g) {
+        if (kiemTra(docGoc(g))) return true;
+        try { return MT.bang(MT.tinh(MT.docBieuThuc(g)), soDo); } catch (e) { return false; }
+      },
+      xemTruoc: function (g) { var x = docGoc(g); if (x) return G(x); try { return MT.sangTex(MT.docBieuThuc(g)); } catch (e) { return null; } } };
+  }
+  var o180 = { k: 'bieuthuc', d: 180, hien: '180^\\circ', go: '180do' };
+  function oSo(d) { return { k: 'so', d: d, hien: '' + d }; }
+
+  // Biểu thức có cos: cos(120) (thầy quy ước: góc trong cos hiểu là độ), vẫn nhận cos120, cos(120do), cos120° -> thay bằng giá trị để chấm, hoặc để hiện lại đúng kí hiệu
+  function reCos() { return /cos\s*(?:\(\s*(\d+(?:[.,]\d+)?)\s*(?:do|°)?\s*\)|(\d+(?:[.,]\d+)?)\s*(?:do|°)?)/gi; }
+  function thayCos(g, cheDo) {
+    var goc = [];
+    var s = String(g == null ? '' : g).replace(reCos(), function (_, x, y) {
+      var d = parseFloat(String(x || y).replace(',', '.')); goc.push(d);
+      if (cheDo === 'hien') return '(987654' + (goc.length - 1) + ')';
+      var c = Math.round(Math.cos(d * Math.PI / 180) * 1e12) / 1e12;
+      return '(' + String(c).replace('.', ',') + ')';
+    });
+    return { s: s, goc: goc };
+  }
+  function xemCos(g) {
+    var t = thayCos(g, 'hien');
+    if (/cos/i.test(t.s)) return null;
+    var x = MT.sangTex(MT.docBieuThuc(t.s));
+    t.goc.forEach(function (d, i) { x = x.split('\\left(987654' + i + '\\right)').join('\\cos ' + MT.so(d) + '^\\circ'); });
+    return x;
+  }
+
+  // st (không bắt buộc) = {gt, khoa, goiY}: bài đang làm của học sinh, để dựng tên điểm theo cách em tự đặt
+  function dong(p, st) {
+    var T = tenDiem(st), O = T.O, X = T.X, Y = T.Y, Z = T.Z;
+    var hbh = O + X + Z + Y, vong = [];
+    for (var r = 0; r < 4; r++) { var q = hbh.slice(r) + hbh.slice(0, r); vong.push(q, q.split('').reverse().join('')); }
+    var Fc1 = T.ke === 'Y' ? p.F2 : p.F1, Fc2 = T.ke === 'Y' ? p.F1 : p.F2; // |c1|, |c2|
+    var sq = function (x) { return x + '^2'; };
+    var congThuc = sq(T.c1) + '+' + sq(T.c2) + '-2\\cdot ' + T.c1 + '\\cdot ' + T.c2 + '\\cdot\\cos' + G(T.K);
+    var RE_CT = /^([A-Z]{2})\^2\+([A-Z]{2})\^2-2\.?([A-Z]{2})\.?([A-Z]{2})\.?COS\.?(.+)$/;
+    function docCT(g) {
+      var s = gon(g).replace(/²/g, '^2').replace(/[·*×∙]/g, '.').replace(/[−–—]/g, '-');
+      var m = RE_CT.exec(s); if (!m) return null;
+      var gk = m[5].replace(/^\((.*)\)$/, '$1'), goc = /^[A-Z]$/.test(gk) ? gk : docGoc(gk);
+      return goc ? { c: [m[1], m[2], m[3], m[4]], goc: goc } : null;
+    }
+    function haiCanh(a, b) { return (cungDoan(a, T.c1) && cungDoan(b, T.c2)) || (cungDoan(a, T.c2) && cungDoan(b, T.c1)); }
+    function laGocO(x) { return cungGoc(x, T.gocO); }
+    function laGocKe(x) { return cungGoc(x, T.keX) || cungGoc(x, T.keY); }
+    function laVectoTuO(g) { var v = MT.docVectoTen(g); return v && v[0] === O && v[1] !== O ? v : null; }
+    var gt = st && st.gt;
+    // Kết quả OC² (thầy dặn 27/11/2026): ra số nguyên thì ô số; có căn thì một ô dạng A+Bcan(C) hoặc A-Bcan(C), có chú thích nhỏ ở dưới
+    var dongKetQua = '[[3]]', oKetQua = [oSo(p.OC2)];
+    if (p.can) {
+      if (!(st && st.khoa && st.khoa[D_TG + 1])) dongKetQua += '<br><span class="nho chu-thich">Điền dạng A+Bcan(C) hoặc A−Bcan(C), ví dụ: 8-2can(5)</span>';
+      oKetQua = [{ k: 'bieuthuc', rong: 16, d: p.OC2, hien: p.hienOC2, go: p.goOC2,
+        kiemTra: function (g) {
+          var x = String(g == null ? '' : g).replace(/\s+/g, '').replace(/√/g, 'can').replace(/−/g, '-').toLowerCase();
+          var so = '\\d+(?:[.,]\\d+)?', can = '(?:' + so + ')?[.*·×]?can\\(?' + so + '\\)?';
+          if (!new RegExp('^(?:' + so + '[+-]' + can + '|' + can + '[+-]' + so + ')$').test(x)) return { dung: false, lyDo: 'Em điền dạng A+Bcan(C), ví dụ 8-2can(5)' };
+          var v; try { v = MT.tinh(MT.docBieuThuc(x)); } catch (e) { return { dung: false, lyDo: e.message }; }
+          return MT.bang(v, p.OC2);
+        } }];
+    }
+    var oF1 = oSo(p.F1), oF2 = oSo(p.F2), oGocO = { k: 'bieuthuc', d: p.goc, hien: p.goc + '^\\circ', go: p.goc + 'do' };
+    function hienHinh() { // hình đang làm bài: chỉ hiện những gì em đã điền đúng
+      if (!st || !st.gt) return { O: true, XY: true, Z: true, goc: true, d1: true, d2: true };
+      var mo = function (i) { return !!(st.goiY && st.goiY[i]); }, xong = function (i) { return !!(st.khoa && st.khoa[i]); };
+      function dungO(i, j, o) { return mo(i) || (xong(i) && MT.chamO(o, gt[i] && gt[i][j]).dung); }
+      return { O: mo(D_DAT) || (xong(D_DAT) && T.dung.O), XY: mo(D_DUNG) || (xong(D_DUNG) && T.dung.XY),
+        Z: mo(D_HOP) || (xong(D_HOP) && T.dung.Z), goc: dungO(D_GOC, 0, oGocO), d1: dungO(D_F, 0, oF1), d2: dungO(D_F, 1, oF2) };
+    }
+    var DAY_DU = { O: true, XY: true, Z: true, goc: true, d1: true, d2: true, bbh: true };
+    var xongHop = !!(st && st.khoa && st.khoa[D_HOP]);
+    return [
+      { t: 'Đặt vật tại điểm [[0]]', o: [oChu(O)] },
+      { t: 'Dựng hình: $' + V('F_1') + '=$ [[0]]; $' + V('F_2') + '=$ [[1]]',
+        o: [{ k: 'vectoTen', d: [O + X], hien: V(O + X), go: 'vt(' + O + X + ')', kiemTra: function (g) { return !!laVectoTuO(g); } },
+            { k: 'vectoTen', d: [O + Y], hien: V(O + Y), go: 'vt(' + O + Y + ')',
+              kiemTra: function (g) { var v = laVectoTuO(g), v0 = laVectoTuO(gt && gt[D_DUNG] && gt[D_DUNG][0]); return !!v && !(v0 && v0[1] === v[1]); } }],
+        hinh: function (pp, cheDo) { // hai vectơ vừa dựng (khi chưa xong dòng Hợp lực)
+          if (cheDo === 'lam' || cheDo === 'loigiai' || xongHop) return '';
+          var h = hienHinh(); h.bbh = false; return hinhBBH(p, T, h);
+        } },
+      { t: '$' + G(T.gocO) + '=$ [[0]]', thut: 1, o: [oGocO] },
+      { t: 'Hợp lực $' + V('F') + '=$ [[0]] $=$ [[1]] $=$ [[2]], với [[3]] là hình bình hành',
+        o: [{ k: 'vecto', d: ['f1', 'f2'], hien: V('F_1') + '+' + V('F_2'), go: 'vt(F1)+vt(F2)' },
+            { k: 'vectoTen', d: [O + X, O + Y], hien: V(O + X) + '+' + V(O + Y), go: 'vt(' + O + X + ')+vt(' + O + Y + ')',
+              xemTruoc: function (g) { var t = docTong(g); return t ? V(t[0]) + '+' + V(t[1]) : null; },
+              kiemTra: function (g) { var t = docTong(g); return !!t && t.slice().sort().join() === [O + X, O + Y].sort().join(); } },
+            { k: 'vectoTen', d: [O + Z], hien: V(O + Z), go: 'vt(' + O + Z + ')', kiemTra: function (g) { return MT.docVectoTen(g) === O + Z; } },
+            { k: 'hbh', d: [hbh], hien: hbh, go: hbh, xemTruoc: function (g) { var s = gon(g); return /^[A-Z]{4}$/.test(s) ? s : null; },
+              kiemTra: function (g) { return vong.indexOf(gon(g)) >= 0; } }],
+        hinh: function (pp, cheDo) {
+          if (cheDo === 'loigiai') return hinhBBH(p, T, DAY_DU);
+          if (cheDo === 'lam' || !xongHop) return '';
+          var h = hienHinh(); h.bbh = true; return hinhBBH(p, T, h);
+        } },
+      // hai dòng độ lớn lực hiện cùng lúc, điền xong chốt cả hai; tên cạnh theo hình bình hành em dựng
+      { t: '$|' + V('F_1') + '|=' + O + X + '=$ [[0]] (N)<br>$|' + V('F_2') + '|=' + O + Y + '=$ [[1]] (N)', o: [oF1, oF2] },
+      { t: 'Ta có: [[0]] $+$ [[1]] $=$ [[2]] (hai góc kề một cạnh của hình bình hành thì bù nhau)',
+        o: [oGoc(T.gocO, function (x) { return laGocO(x) || laGocKe(x); }),
+            oGoc(T.K, function (x) {
+              var g0 = docGoc(gt && gt[D_TACO] && gt[D_TACO][0]);
+              if (laGocO(g0)) return laGocKe(x);
+              if (laGocKe(g0)) return laGocO(x);
+              return laGocO(x) || laGocKe(x);
+            }), o180] },
+      { t: '$\\Rightarrow$ [[0]] $=$ [[1]] $-$ [[2]] $=$ [[3]]',
+        o: [oGoc(T.K, function (x) { return cungGoc(x, T.K); }), o180, oGocHaySo(T.gocO, laGocO, p.goc), { k: 'bieuthuc', d: p.ke, hien: p.ke + '^\\circ', go: p.ke + 'do' }] },
+      { t: 'Áp dụng định lý Côsin trong tam giác [[0]]:',
+        o: [{ k: 'tamgiac', d: [T.tg], hien: T.tg, go: T.tg, xemTruoc: function (g) { var s = gon(g); return /^[A-Z]{3}$/.test(s) ? s : null; },
+              kiemTra: function (g) { return cungTap(gon(g), T.tg); } }] },
+      // một bước: dòng công thức, dòng thay số, kết quả tính (điền xong chốt cả ba)
+      { t: '[[0]] $=$ [[1]]<br>$=$ [[2]]<br>$\\Rightarrow ' + O + Z + '^2=$ ' + dongKetQua, thut: 1, vuaHang: true,
+        o: [oDoan(O + Z, true),
+            { k: 'bieuthucChu', rong: 30, d: [T.c1, T.c2, T.K], hien: congThuc, go: T.c1 + '^2+' + T.c2 + '^2-2.' + T.c1 + '.' + T.c2 + '.cos(goc(' + T.K + '))',
+              xemTruoc: function (g) {
+                var m = docCT(g); if (!m) return null;
+                return sq(m.c[0]) + '+' + sq(m.c[1]) + '-2\\cdot ' + m.c[2] + '\\cdot ' + m.c[3] + '\\cdot\\cos' + G(m.goc);
+              },
+              kiemTra: function (g) {
+                var m = docCT(g); if (!m) return false;
+                var gocDung = m.goc.length === 1 ? m.goc === T.D : cungGoc(m.goc, T.K);
+                return haiCanh(m.c[0], m.c[1]) && haiCanh(m.c[2], m.c[3]) && gocDung;
+              } },
+            { k: 'bieuthuc', rong: 30, d: p.OC2, hien: Fc1 + '^2+' + Fc2 + '^2-2\\cdot ' + Fc1 + '\\cdot ' + Fc2 + '\\cdot\\cos ' + p.ke + '^\\circ',
+              go: Fc1 + '^2+' + Fc2 + '^2-2.' + Fc1 + '.' + Fc2 + '.cos(' + p.ke + ')',
+              xemTruoc: xemCos,
+              kiemTra: function (g) { // phải thay số |F1|, |F2| và cos(góc kề), không chỉ ghi kết quả
+                var t = thayCos(g), v;
+                try { v = MT.tinh(MT.docBieuThuc(t.s)); } catch (e) { return { dung: false, lyDo: e.message }; }
+                if (!MT.bang(v, p.OC2)) return false;
+                var so = (String(g).replace(reCos(), ' ').match(/\d+/g) || []).map(Number);
+                var co = function (F) { return so.indexOf(F) >= 0 || so.indexOf(F * F) >= 0; };
+                return co(p.F1) && co(p.F2) && t.goc.length ? true : { dung: false, lyDo: 'Em cần thay số vào công thức (có cả cos của góc)' };
+              } },
+            ].concat(oKetQua) },
+      // tên cạnh ghi sẵn theo dòng trên; OC² có căn (30°, 45°) thì chỉ điền giá trị xấp xỉ (thầy dặn 27/11/2026)
+      p.can ? { t: '$\\Rightarrow ' + O + Z + '\\approx$ [[0]]', o: [oSo(p.tron)] }
+            : { t: '$\\Rightarrow ' + O + Z + '=$ [[0]] $\\approx$ [[1]]', o: [{ k: 'bieuthuc', d: p.OC, hien: '\\sqrt{' + p.OC2 + '}', go: 'can' + p.OC2 }, oSo(p.tron)] },
+      { t: 'Do $|' + V('F') + '|=$ [[0]] $\\approx$ [[1]]', o: [oDoan(O + Z), oSo(p.tron)] },
+      { t: 'Vậy độ lớn của hợp lực khoảng [[0]] (N).', o: [oSo(p.tron)] }
+    ];
+  }
+
+  DANG_TOAN.push({
+    lop: 10,
+    chuong: 'Chương IV. Vectơ',
+    bai: 'Bài 8. Tổng và hiệu của hai vectơ',
+    maDang: 'L10.C4.B8.D2',
+    tenDang: 'Bài toán thực tế: Tổng hợp lực',
+    cau: [{
+      maCau: 'L10.C4.B8.D2.C1',
+      ten: 'Câu 1',
+      muc: 'Vận dụng',
+      chiDapAn: false,
+      soBoSo: BO_SO.length,
+      tao: tao,
+      de: function (p) {
+        return '<b>Bài toán hợp lực.</b> Người ta tác động cùng một lúc hai lực $' + V('F_1') + '$, $' + V('F_2') + '$ vào một vật (như hình vẽ). ' +
+          'Biết góc giữa hai lực bằng $' + p.goc + '^\\circ$, $|' + V('F_1') + '|=' + p.F1 + '$ N, $|' + V('F_2') + '|=' + p.F2 + '$ N. ' +
+          'Gọi vectơ hợp lực $' + V('F') + '$ là tổng của hai lực $' + V('F_1') + '$, $' + V('F_2') + '$. ' +
+          'Tính độ lớn của vectơ hợp lực $' + V('F') + '$ theo đơn vị N <b>(làm tròn kết quả đến hàng đơn vị)</b>.';
+      },
+      hinhDe: hinhDe,
+      dong: dong,
+      dapAn: function (p) { return { k: 'so', d: p.tron, hien: '' + p.tron, donVi: 'N' }; }
+    }]
+  });
+})();
+
 window.DANG_TOAN = DANG_TOAN;
 </script>
 
@@ -815,6 +1178,18 @@ window.DANG_TOAN = DANG_TOAN;
    ============================================================ */
 var S = { token: null, nd: null, tienDo: {}, lam: null, ql: { tab: 'ketqua' } };
 var app = document.getElementById('app');
+// Dòng có vuaHang: khi đã điền xong, thu nhỏ cỡ chữ để hai vế của dấu bằng nằm trên một dòng
+function vuaHang(goc) {
+  (goc || document).querySelectorAll('.pt-hang.vua').forEach(function (el) {
+    el.style.fontSize = '';
+    for (var f = 100; el.scrollWidth > el.clientWidth + 1 && f > 50;) { f -= 5; el.style.fontSize = f + '%'; }
+  });
+}
+(function () {
+  var hen = null, chay = function () { clearTimeout(hen); hen = setTimeout(function () { vuaHang(document); }, 30); };
+  if (window.MutationObserver) new MutationObserver(chay).observe(document.body, { childList: true, subtree: true });
+  window.addEventListener('resize', chay);
+})();
 
 /* ---------- tiện ích ---------- */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -865,7 +1240,7 @@ function hopThoai(html, cacNut) { // trả về chỉ số nút được bấm
     };
   });
 }
-function doRong(g) { return 'calc(' + Math.max(6, String(g == null ? '' : g).length + 2) + 'ch + 18px)'; }
+function doRong(g, toiThieu) { return 'calc(' + Math.max(toiThieu || 6, String(g == null ? '' : g).length + 2) + 'ch + 18px)'; } // ô có rong: báo trước phải điền dài
 function ngayGio(t) { var d = new Date(t), p = function (x) { return (x < 10 ? '0' : '') + x; }; return p(d.getDate()) + '/' + p(d.getMonth() + 1) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()); }
 function nhanMuc(td) {
   if (!td) return '<span class="nhan">Chưa làm</span>';
@@ -1128,7 +1503,7 @@ function veO(i, j, cheDo) { // cheDo: lam | khoa | loigiai | cham
     }).join('');
   } else {
     var xt = MT.xemTruoc(o, g);
-    h2 += '<input type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" value="' + esc(g) + '" style="width:' + doRong(g) + '">' +
+    h2 += '<input type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" value="' + esc(g) + '" style="width:' + doRong(g, o.rong) + '">' +
       '<span class="xem">' + (coXemTruoc(o, g, xt) ? texMot(xt) : '') + '</span>';
   }
   return h2 + '</span>';
@@ -1137,6 +1512,8 @@ function veDong(i, cheDo) {
   var L = S.lam, d = L.dong[i];
   var cls = 'dong' + (d.thut ? ' thut1' : '') + (cheDo === 'lam' ? ' hien-tai' : '') + (L.goiY[i] ? ' goi-y' : '');
   var noi = String(d.t).split(/\[\[(\d+)\]\]/).map(function (p, k) { return k % 2 ? veO(i, Number(p), cheDo) : tex(p); }).join('');
+  if (d.vuaHang || /<br>/.test(noi)) // một bước gồm nhiều dòng: mỗi dòng một khối
+    noi = noi.split('<br>').map(function (x) { return '<div class="pt-hang' + (d.vuaHang && cheDo !== 'lam' ? ' vua' : '') + '">' + x + '</div>'; }).join('');
   var h = '<div class="' + cls + '" id="dong-' + i + '">' + noi + (L.goiY[i] ? ' <span class="nhan dmot">đã mở gợi ý</span>' : '') + '</div>';
   if (d.hinh) h += d.hinh(L.p, cheDo);
   return h;
@@ -1163,7 +1540,7 @@ function veLam() {
       '</div></div><div id="loi-giai-tb"></div>';
   } else {
     var tongDong = L.dong.filter(coO).length || 1, daXong = L.dong.slice(0, Math.min(L.cur, L.dong.length)).filter(coO).length;
-    h += '<div class="the" id="bai-giai"><div class="dau-bai-giai"><b>Bài giải</b><span class="chip">' + (L.cur < L.dong.length ? 'Dòng ' + (L.cur + 1) + '/' + L.dong.length : 'Đã đến dòng cuối') + '</span></div>' +
+    h += '<div class="the" id="bai-giai"><div class="dau-bai-giai"><b>Bài giải</b><span class="chip">' + (L.cur < L.dong.length ? 'Bước ' + (daXong + 1) + '/' + tongDong : 'Đã đến bước cuối') + '</span></div>' +
       '<div class="thanh-dong"><i style="width:' + Math.round(100 * daXong / tongDong) + '%"></i></div>';
     for (var i = 0; i < L.dong.length; i++) {
       if (i === 0 && L.khoa.some(Boolean)) h += '<p class="mo nho goi-y-sua">' + ic('sua') + 'Chưa bấm Hoàn thành thì em bấm vào ô đã điền để sửa lại.</p>';
@@ -1171,11 +1548,11 @@ function veLam() {
       else if (i === L.cur) { h += veDong(i, 'lam'); if (L.meo[i] && L.dong[i].meo) h += '<div class="meo">' + ic('goiy') + '<div>' + tex(L.dong[i].meo) + '</div></div>'; }
     }
     if (L.cur < L.dong.length) {
-      h += '<div id="dong-tb"></div><div class="hang-nut"><button class="nut" id="b-tiep">Xong dòng này ' + ic('tiep') + '</button>' +
+      h += '<div id="dong-tb"></div><div class="hang-nut"><button class="nut" id="b-tiep">Xong bước này ' + ic('tiep') + '</button>' +
         (L.dong[L.cur].meo && !L.meo[L.cur] ? '<button class="nut nut-meo" id="b-meo">' + ic('sach') + 'Gợi ý kiến thức</button>' : '') +
-        (L.cau.khongGoiYDapAn ? '' : '<button class="nut canh-bao" id="b-goiy">' + ic('goiy') + 'Mở gợi ý dòng này</button>') + '</div>';
+        (L.cau.khongGoiYDapAn ? '' : '<button class="nut canh-bao" id="b-goiy">' + ic('goiy') + 'Mở gợi ý bước này</button>') + '</div>';
     } else {
-      h += '<div class="thong-bao vang">' + ic('co') + '<span>Em đã làm đến dòng cuối. Bấm <b>Hoàn thành</b> để xem kết quả.</span></div>';
+      h += '<div class="thong-bao vang">' + ic('co') + '<span>Em đã làm đến bước cuối. Bấm <b>Hoàn thành</b> để xem kết quả.</span></div>';
     }
     h += '</div><div class="thanh-hanh-dong"><button class="nut xanh" id="b-ht">' + ic('co') + 'Hoàn thành</button>' +
       (L.xemTB ? '' : '<button class="nut vien" id="b-tb">' + ic('tailieu') + 'Xem toàn bộ lời giải</button>') + '</div><div id="loi-giai-tb"></div>';
@@ -1231,7 +1608,7 @@ function ganO(scope) {
     var inp = sp.querySelector('input');
     if (inp && !inp.disabled) {
       inp.addEventListener('input', function () {
-        S.lam.gt[i][j] = inp.value; inp.style.width = doRong(inp.value);
+        S.lam.gt[i][j] = inp.value; inp.style.width = doRong(inp.value, o.rong);
         var xt = MT.xemTruoc(o, inp.value); sp.querySelector('.xem').innerHTML = coXemTruoc(o, inp.value, xt) ? texMot(xt) : '';
       });
       inp.addEventListener('focus', function () { thanhKiHieu(true, inp); });
@@ -1251,14 +1628,14 @@ function ganGiaiDayDu() {
   var tiep = document.getElementById('b-tiep');
   if (tiep) tiep.onclick = function () {
     var thieu = L.gt[L.cur].some(function (x) { return String(x).trim() === ''; });
-    if (thieu) { document.getElementById('dong-tb').innerHTML = '<div class="thong-bao vang">Em điền hết các ô của dòng này rồi bấm tiếp nhé.</div>'; return; }
+    if (thieu) { document.getElementById('dong-tb').innerHTML = '<div class="thong-bao vang">Em điền hết các ô của bước này rồi bấm tiếp nhé.</div>'; return; }
     L.khoa[L.cur] = true; L.cur = dongCoOTiepTheo(L.cur); thanhKiHieu(false); veLam(); cuonDong();
   };
   var bm = document.getElementById('b-meo');
   if (bm) bm.onclick = function () { L.meo[L.cur] = true; veLam(); cuonDong(); }; // gợi ý kiến thức: không trừ điểm
   var gy = document.getElementById('b-goiy');
   if (gy) gy.onclick = function () {
-    hopThoai('<p><b>Mở gợi ý dòng này?</b></p><p>Mở gợi ý thì câu này không đạt 100%. Các ô của dòng này sẽ không được tính là em tự làm.</p>', ['Mở gợi ý', 'Để em tự làm'])
+    hopThoai('<p><b>Mở gợi ý bước này?</b></p><p>Mở gợi ý thì câu này không đạt 100%. Các ô của bước này sẽ không được tính là em tự làm.</p>', ['Mở gợi ý', 'Để em tự làm'])
       .then(function (k) {
         if (k !== 0) return;
         L.goiY[L.cur] = true; L.khoa[L.cur] = true; L.cur = dongCoOTiepTheo(L.cur); thanhKiHieu(false); veLam(); cuonDong();
@@ -1267,7 +1644,7 @@ function ganGiaiDayDu() {
   document.getElementById('b-ht').onclick = function () {
     var conLai = L.cur < L.dong.length;
     if (!conLai) { hoanThanh(); return; }
-    hopThoai('<p>Em chưa làm đến dòng cuối. Những ô chưa làm sẽ tính là chưa đúng. Em vẫn muốn hoàn thành?</p>', ['Làm tiếp', 'Hoàn thành'])
+    hopThoai('<p>Em chưa làm đến bước cuối. Những ô chưa làm sẽ tính là chưa đúng. Em vẫn muốn hoàn thành?</p>', ['Làm tiếp', 'Hoàn thành'])
       .then(function (k) { if (k === 1) hoanThanh(); });
   };
   var tb = document.getElementById('b-tb');
@@ -1411,7 +1788,7 @@ function thanhKiHieu(hien, inp) {
   if (!hien) { t.style.display = 'none'; oDangGo = null; return; }
   oDangGo = inp;
   if (!t.innerHTML) {
-    var nut = [['√', 'can'], ['a/b', '/'], ['x²', '^2'], ['( )', '()'], ['vt( )', 'vt()'], [',', ','], ['· nhân', '.'], ['°', 'do'], ['?', '?']];
+    var nut = [['√', 'can'], ['a/b', '/'], ['x²', '^2'], ['( )', '()'], ['vt( )', 'vt()'], ['góc( )', 'goc()'], [',', ','], ['· nhân', '.'], ['°', 'do'], ['?', '?']];
     t.innerHTML = nut.map(function (n) { return '<button type="button" data-c="' + esc(n[1]) + '">' + esc(n[0]) + '</button>'; }).join('');
     t.addEventListener('mousedown', function (e) { e.preventDefault(); });
     t.addEventListener('click', function (e) {
@@ -1448,7 +1825,7 @@ document.addEventListener('focusout', function () {
 });
 function bangHuongDan() {
   var hang = [['2/3', '\\dfrac{2}{3}'], ['can2 hoặc sqrt(2)', '\\sqrt{2}'], ['2can91', '2\\sqrt{91}'], ['60can91/91', '\\dfrac{60\\sqrt{91}}{91}'], ['x^2', 'x^2'],
-    ['6,3 (dấu phẩy)', '6{,}3'], ['2.3 (dấu chấm là nhân)', '2\\cdot 3'], ['60do', '60^\\circ'], ['vt(AB)', '\\overrightarrow{AB}'], ['vt(v1)+vt(v2)', '\\overrightarrow{v_1}+\\overrightarrow{v_2}']];
+    ['6,3 (dấu phẩy)', '6{,}3'], ['2.3 (dấu chấm là nhân)', '2\\cdot 3'], ['60do', '60^\\circ'], ['vt(AB)', '\\overrightarrow{AB}'], ['vt(v1)+vt(v2)', '\\overrightarrow{v_1}+\\overrightarrow{v_2}'], ['goc(AOB)', '\\widehat{AOB}'], ['cos(120) (góc trong cos tính bằng độ)', '\\cos 120^\\circ']];
   hopThoai('<p><b>Cách gõ kí hiệu</b></p><table class="bang" style="margin-top:8px"><tr><th>Em gõ</th><th>Web hiện</th></tr>' +
     hang.map(function (r) { return '<tr><td><code>' + esc(r[0]) + '</code></td><td>' + texMot(r[1]) + '</td></tr>'; }).join('') +
     '</table><p class="mo">Ô nào cũng chấm theo giá trị: 2/4, 1/2 và 0,5 đều đúng nếu đáp án là 1/2. Đáp án có căn ở mẫu phải trục căn thức.</p>', ['Đóng']);
