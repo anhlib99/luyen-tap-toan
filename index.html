@@ -1183,6 +1183,964 @@ window.DANG_TOAN = DANG_TOAN;
 
 <script>
 /* ============================================================
+   ĐỀ ÔN TẬP KIỂM TRA (làm cả bộ đề, chấm theo thang điểm 2025)
+   Mỗi đề là một khối DE_ON_TAP.push({...}).
+   Mỗi câu có hàm tao(R) sinh số liệu theo mã đề (R là bộ số ngẫu nhiên có hạt giống),
+   trả về một trong ba kiểu:
+     { loai: 'tn', de, hinh, pa: [4 phương án], dung: vị trí đúng, giai }
+     { loai: 'ds', de, hinh, y: [{ t, dung: true/false, giai } x4] }
+     { loai: 'tl', de, hinh, da: số đáp án, hienDa: 'chuỗi', giai }
+   kienThuc: kiến thức cần nhớ (hiện ở mục "Nội dung cần ôn tập"), ví dụ mẫu sinh từ chính câu đó với số liệu khác.
+   ============================================================ */
+var DE_ON_TAP = window.DE_ON_TAP || [];
+
+var OTL = (function () {
+  /* ---------- số ngẫu nhiên có hạt giống ---------- */
+  function R(seed) {
+    var s = Math.abs(Math.floor(seed)) % 2147483647; if (s <= 0) s += 2147483646;
+    function n() { s = s * 16807 % 2147483647; return (s - 1) / 2147483646; }
+    var r = {
+      n: n,
+      so: function (a, b) { return a + Math.floor(n() * (b - a + 1)); },
+      soKhac0: function (a, b) { var x; do { x = r.so(a, b); } while (x === 0); return x; },
+      chon: function (ds) { return ds[Math.floor(n() * ds.length)]; },
+      tron: function (ds) { var a = ds.slice(); for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(n() * (i + 1)), t = a[i]; a[i] = a[j]; a[j] = t; } return a; },
+      tung: function () { return n() < 0.5; }
+    };
+    return r;
+  }
+  function ucln(a, b) { a = Math.abs(a); b = Math.abs(b); while (b) { var t = a % b; a = b; b = t; } return a || 1; }
+  /* ---------- trình bày số ---------- */
+  function ps(p, q) { // phân số tối giản dạng LaTeX
+    if (q < 0) { p = -p; q = -q; }
+    var g = ucln(p, q); p /= g; q /= g;
+    if (q === 1) return String(p);
+    return (p < 0 ? '-' : '') + '\\dfrac{' + Math.abs(p) + '}{' + q + '}';
+  }
+  function rutCan(n) { var a = 1, b = n; for (var k = Math.floor(Math.sqrt(n)); k >= 2; k--) if (b % (k * k) === 0) { a *= k; b /= k * k; } return [a, b]; }
+  // giá trị p/q·√r (kèm chữ đuôi, ví dụ 'a') dạng LaTeX gọn: 5a\sqrt{2}, \dfrac{4\sqrt{6}}{3}, -12\sqrt{3}
+  function can(p, q, r, duoi) {
+    duoi = duoi || '';
+    var c = rutCan(r || 1); p *= c[0]; r = c[1];
+    if (q < 0) { p = -p; q = -q; }
+    var g = ucln(p, q); p /= g; q /= g;
+    var am = p < 0; p = Math.abs(p);
+    var tu = (p === 1 && (duoi || r > 1) ? '' : String(p)) + duoi + (r > 1 ? '\\sqrt{' + r + '}' : '');
+    if (p === 1 && !duoi && r === 1) tu = '1';
+    return (am ? '-' : '') + (q === 1 ? tu : '\\dfrac{' + tu + '}{' + q + '}');
+  }
+  function giaTriCan(p, q, r) { return p * Math.sqrt(r || 1) / q; }
+  function soVN(x, chuSo) { // 12.5 -> 12,5
+    var s = chuSo == null ? String(x) : x.toFixed(chuSo);
+    return s.replace('.', ',');
+  }
+  function toaDo(x, y) { return '(' + x + ';' + y + ')'; }
+  function vt(t) { return '\\overrightarrow{' + t + '}'; }
+  function ngoac(x) { return x < 0 ? '(' + x + ')' : String(x); }
+  // biểu thức bậc nhất: [[3,'x'],[-1,'y'],[2,'']] -> 3x-y+2
+  function bieuThuc(ds) {
+    var s = '';
+    ds.forEach(function (h) {
+      var a = h[0], b = h[1]; if (a === 0) return;
+      var tri = Math.abs(a) === 1 && b ? '' : String(Math.abs(a));
+      s += (a < 0 ? '-' : (s ? '+' : '')) + tri + b;
+    });
+    return s || '0';
+  }
+  function tap(ds) { return '\\{' + ds.join(';') + '\\}'; }
+  function doanSo(a, b, tr, ph) { return (tr ? '[' : '(') + a + ';' + b + (ph ? ']' : ')'); }
+  function tronPA(Rr, dung, sai) { // 4 phương án khác nhau, vị trí đúng ngẫu nhiên
+    var ds = [dung].concat(sai);
+    for (var i = 0; i < ds.length; i++) for (var j = i + 1; j < ds.length; j++) if (ds[i] === ds[j]) throw new Error('lai');
+    var t = Rr.tron([0, 1, 2, 3]);
+    return { pa: t.map(function (k) { return ds[k]; }), dung: t.indexOf(0) };
+  }
+  function khacNhau(ds, k) { // lấy k phần tử khác nhau đầu tiên (theo chuỗi) từ ds
+    var kq = [];
+    ds.forEach(function (x) { if (kq.length < k && kq.indexOf(x) < 0) kq.push(x); });
+    if (kq.length < k) throw new Error('lai');
+    return kq;
+  }
+  function ganNuaDV(x, buoc) { var f = (x / buoc) - Math.floor(x / buoc); return Math.abs(f - 0.5) < 0.1; } // sát ngưỡng làm tròn
+  var rad = Math.PI / 180;
+  function sin(d) { return Math.sin(d * rad); }
+  function cos(d) { return Math.cos(d * rad); }
+  /* ---------- hình vẽ (SVG) ---------- */
+  var NET = 'stroke="#1f2a5a" stroke-width="2.4" fill="none"', CHU = 'font-family="Times New Roman,serif" font-style="italic" fill="#1f2a5a"';
+  function muiTen(id, mau) { return '<defs><marker id="' + id + '" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="' + mau + '"/></marker></defs>'; }
+  function cham(x, y) { return '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="4.5" fill="#e53935" stroke="#fff" stroke-width="1.5"/>'; }
+  function chu(x, y, t, co, them) { return '<text x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" font-size="' + (co || 20) + '" ' + CHU + ' text-anchor="middle" ' + (them || '') + '>' + t + '</text>'; }
+  function cungGoc(cx, cy, r, g1, g2, mau) { // cung góc từ g1 đến g2 (độ, ngược chiều kim đồng hồ, trục y hướng lên)
+    var x1 = cx + r * cos(g1), y1 = cy - r * sin(g1), x2 = cx + r * cos(g2), y2 = cy - r * sin(g2);
+    return '<path d="M' + x1.toFixed(1) + ',' + y1.toFixed(1) + ' A' + r + ',' + r + ' 0 0 0 ' + x2.toFixed(1) + ',' + y2.toFixed(1) + '" stroke="' + (mau || '#e8590c') + '" stroke-width="2" fill="none"/>';
+  }
+  return { R: R, ucln: ucln, ps: ps, can: can, giaTriCan: giaTriCan, rutCan: rutCan, soVN: soVN, toaDo: toaDo, vt: vt, ngoac: ngoac, bieuThuc: bieuThuc, tap: tap, doanSo: doanSo,
+    tronPA: tronPA, khacNhau: khacNhau, ganNuaDV: ganNuaDV, sin: sin, cos: cos, NET: NET, CHU: CHU, muiTen: muiTen, cham: cham, chu: chu, cungGoc: cungGoc };
+})();
+
+/* ---------- Lớp 10 - Ôn tập kiểm tra cuối học kì I ---------- */
+(function () {
+  var L = OTL, vt = L.vt, can = L.can, ps = L.ps, td = L.toaDo, ng = L.ngoac;
+  var SIN = { 30: [1, 2, 1], 45: [1, 2, 2], 60: [1, 2, 3], 90: [1, 1, 1], 120: [1, 2, 3], 135: [1, 2, 2], 150: [1, 2, 1] }; // [p, q, r]: p/q·√r
+  var COS = { 30: [1, 2, 3], 45: [1, 2, 2], 60: [1, 2, 1], 90: [0, 1, 1], 120: [-1, 2, 1], 135: [-1, 2, 2], 150: [-1, 2, 3] };
+  function trig(bang, g) { var t = bang[g]; return can(t[0], t[1], t[2]); }
+  // Các bộ (b, c, a): AC = b, AB = c, góc A = 60° hoặc 120°, BC = a nguyên
+  var BO60 = [[6, 16, 14], [16, 6, 14], [3, 8, 7], [8, 3, 7], [5, 8, 7], [8, 5, 7], [8, 15, 13], [15, 8, 13], [10, 16, 14], [16, 10, 14], [16, 21, 19], [21, 16, 19]];
+  var BO120 = [[3, 5, 7], [5, 3, 7], [7, 8, 13], [8, 7, 13], [6, 10, 14], [10, 6, 14], [5, 16, 19], [16, 5, 19]];
+  var PYTAGO = [[3, 4, 5], [6, 8, 10], [5, 12, 13], [8, 15, 17], [9, 12, 15], [12, 16, 20], [7, 24, 25]];
+
+  var cau = [];
+  /* ======================= PHẦN I ======================= */
+  cau.push({ phan: 1, chuDe: 'Các phép toán trên tập hợp',
+    kienThuc: '<ul><li>$A\\cap B$ (giao): các phần tử <b>vừa thuộc $A$ vừa thuộc $B$</b>.</li><li>$A\\cup B$ (hợp): các phần tử <b>thuộc $A$ hoặc thuộc $B$</b> (viết mỗi phần tử một lần).</li><li>$A\\setminus B$ (hiệu): các phần tử <b>thuộc $A$ nhưng không thuộc $B$</b>. Chú ý $A\\setminus B$ khác $B\\setminus A$.</li></ul>',
+    tao: function (r) {
+      var so = r.tron([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]), nhoHon = function (a, b) { return a - b; };
+      var I = so.slice(0, 2).sort(nhoHon), Ar = so.slice(2, 5).sort(nhoHon), Br = so.slice(5, 7).sort(nhoHon);
+      var A = I.concat(Ar).sort(nhoHon), B = I.concat(Br).sort(nhoHon), U = A.concat(Br).sort(nhoHon);
+      var phep = r.chon(['\\cap', '\\cup', '\\setminus']), T = L.tap;
+      var tapDung = phep === '\\cap' ? I : phep === '\\cup' ? U : Ar;
+      var sai = phep === '\\cap' ? [Ar, U, Br] : phep === '\\cup' ? [I, Ar, Br] : [I, U, Br];
+      var p = L.tronPA(r, '$' + T(tapDung) + '$', sai.map(function (x) { return '$' + T(x) + '$'; }));
+      var y = phep === '\\cap' ? 'vừa thuộc $A$ vừa thuộc $B$' : phep === '\\cup' ? 'thuộc $A$ hoặc thuộc $B$' : 'thuộc $A$ nhưng không thuộc $B$';
+      return { loai: 'tn', de: 'Cho hai tập hợp $A=' + T(A) + '$ và $B=' + T(B) + '$. Tập hợp $A' + phep + ' B$ là', pa: p.pa, dung: p.dung,
+        giai: '$A' + phep + ' B$ gồm các phần tử ' + y + ' nên $A' + phep + ' B=' + T(tapDung) + '$.' };
+    } });
+
+  cau.push({ phan: 1, chuDe: 'Bất phương trình bậc nhất hai ẩn',
+    kienThuc: '<ul><li>Cặp số $(x_0;y_0)$ là một nghiệm của bất phương trình $ax+by+c\\le 0$ khi thay $x=x_0$, $y=y_0$ vào ta được <b>bất đẳng thức đúng</b> $ax_0+by_0+c\\le 0$.</li><li>Cẩn thận dấu khi thay số âm: luôn đặt số âm trong ngoặc.</li><li>Phân biệt dấu $\\le$ (có dấu bằng) và $<$ (không có dấu bằng).</li></ul>',
+    tao: function (r) {
+      var a = r.soKhac0(-4, 4), b = r.soKhac0(-3, 3), c = r.so(-5, 5), dau = r.chon(['\\le', '<', '\\ge', '>']);
+      var thoa = function (v) { return dau === '\\le' ? v <= 0 : dau === '<' ? v < 0 : dau === '\\ge' ? v >= 0 : v > 0; };
+      var dung = null, sai = [], dem = 0, dung1;
+      while ((!dung || sai.length < 3) && dem++ < 300) {
+        var x = r.so(-4, 4), y = r.so(-4, 4), v = a * x + b * y + c;
+        if (v === 0) continue;
+        var k = x + ';' + y; if ((dung && dung.k === k) || sai.some(function (s) { return s.k === k; })) continue;
+        if (thoa(v)) { if (!dung) dung = { x: x, y: y, v: v, k: k }; } else if (sai.length < 3) sai.push({ x: x, y: y, v: v, k: k });
+      }
+      if (!dung || sai.length < 3) throw new Error('lai');
+      var ten = ['M', 'N', 'P', 'Q'], ds = r.tron([dung].concat(sai)); dung1 = ds.indexOf(dung);
+      var bt = L.bieuThuc([[a, 'x'], [b, 'y'], [c, '']]);
+      var thay = function (d) { return L.bieuThuc([[a, '\\cdot ' + ng(d.x)], [b, '\\cdot ' + ng(d.y)], [c, '']]).replace(/(^|[+-])1\\cdot /g, '$1') + '=' + d.v; };
+      return { loai: 'tn', de: 'Cặp số tương ứng với điểm nào sau đây là một nghiệm của bất phương trình $' + bt + dau + ' 0$?',
+        pa: ds.map(function (d, i) { return '$' + ten[i] + td(d.x, d.y) + '$'; }), dung: dung1,
+        giai: 'Thay toạ độ từng điểm vào vế trái $' + bt + '$:<br>' + ds.map(function (d, i) {
+          return '$' + ten[i] + td(d.x, d.y) + '$: $' + thay(d) + '$, ' + (i === dung1 ? '<b>thoả mãn</b> $' + d.v + dau + ' 0$' : 'không thoả mãn');
+        }).join('<br>') + '<br>Vậy chọn điểm $' + ten[dung1] + '$.' };
+    } });
+
+  cau.push({ phan: 1, chuDe: 'Định lí côsin: tính góc khi biết ba cạnh',
+    kienThuc: '<ul><li>Định lí côsin: $BC^2=AB^2+AC^2-2\\cdot AB\\cdot AC\\cdot\\cos A$.</li><li>Hệ quả: $\\cos A=\\dfrac{AB^2+AC^2-BC^2}{2\\cdot AB\\cdot AC}$ (hai cạnh <b>kề</b> góc $A$ ở trên, trừ đi cạnh <b>đối diện</b> góc $A$).</li><li>$\\cos A<0$ thì góc $A$ tù.</li></ul>',
+    tao: function (r) {
+      var a, b, c, tu, mau;
+      for (var k = 0; k < 400; k++) {
+        a = r.so(4, 13); b = r.so(3, 12); c = r.so(3, 12);
+        if (a >= b + c || b >= a + c || c >= a + b) continue;
+        tu = b * b + c * c - a * a; mau = 2 * b * c;
+        if (tu === 0 || mau / L.ucln(tu, mau) > 30) continue;
+        break;
+      }
+      var dung = ps(tu, mau), cB = ps(a * a + c * c - b * b, 2 * a * c), cC = ps(a * a + b * b - c * c, 2 * a * b);
+      var p = L.tronPA(r, '$' + dung + '$', ['$' + ps(-tu, mau) + '$', '$' + cB + '$', '$' + cC + '$']);
+      return { loai: 'tn', de: 'Cho tam giác $ABC$ có $AB=' + c + '$, $AC=' + b + '$ và $BC=' + a + '$. Giá trị của $\\cos A$ bằng', pa: p.pa, dung: p.dung,
+        giai: '$\\cos A=\\dfrac{AB^2+AC^2-BC^2}{2\\cdot AB\\cdot AC}=\\dfrac{' + c + '^2+' + b + '^2-' + a + '^2}{2\\cdot ' + c + '\\cdot ' + b + '}=\\dfrac{' + tu + '}{' + mau + '}=' + dung + '$.' };
+    } });
+
+  cau.push({ phan: 1, chuDe: 'Quy tắc ba điểm, hiệu hai vectơ',
+    kienThuc: '<ul><li>Quy tắc ba điểm: $' + vt('AB') + '+' + vt('BC') + '=' + vt('AC') + '$ (điểm cuối vectơ trước trùng điểm đầu vectơ sau).</li><li>Đổi trừ thành cộng: $-' + vt('XY') + '=' + vt('YX') + '$.</li><li>Quy tắc hiệu: $' + vt('OB') + '-' + vt('OA') + '=' + vt('AB') + '$ (cùng điểm đầu).</li></ul>',
+    tao: function (r) {
+      var t = r.tron(['A', 'B', 'C', 'D']), P = t[0], Q = t[1], Rr = t[2], S = t[3], de, kq, giai;
+      if (r.tung()) {
+        de = vt(Q + Rr) + '-' + vt(P + Rr) + '+' + vt(P + S); kq = Q + S;
+        giai = '$\\vec u=' + vt(Q + Rr) + '+' + vt(Rr + P) + '+' + vt(P + S) + '=' + vt(Q + P) + '+' + vt(P + S) + '=' + vt(Q + S) + '$.';
+      } else {
+        de = vt(Q + Rr) + '-' + vt(S + Rr) + '-' + vt(P + S); kq = Q + P;
+        giai = '$\\vec u=' + vt(Q + Rr) + '+' + vt(Rr + S) + '+' + vt(S + P) + '=' + vt(Q + S) + '+' + vt(S + P) + '=' + vt(Q + P) + '$.';
+      }
+      var nguoc = kq.charAt(1) + kq.charAt(0), khac = [P + S, Rr + P, S + Q, Q + Rr, P + Rr].filter(function (x) { return x !== kq && x !== nguoc; });
+      var p = L.tronPA(r, '$\\vec u=' + vt(kq) + '$', ['$\\vec u=' + vt(nguoc) + '$'].concat(L.khacNhau(khac, 2).map(function (x) { return '$\\vec u=' + vt(x) + '$'; })));
+      return { loai: 'tn', de: 'Cho tứ giác $ABCD$. Thu gọn vectơ $\\vec u=' + de + '$ ta được', pa: p.pa, dung: p.dung, giai: 'Đổi dấu trừ: $-' + vt('XY') + '=' + vt('YX') + '$, rồi dùng quy tắc ba điểm:<br>' + giai };
+    } });
+
+  cau.push({ phan: 1, chuDe: 'Trọng tâm tam giác, trung điểm đoạn thẳng',
+    kienThuc: '<ul><li>$G$ là trọng tâm tam giác $ABC$ $\\Leftrightarrow$ $' + vt('GA') + '+' + vt('GB') + '+' + vt('GC') + '=\\vec 0$.</li><li>$M$ là trung điểm $BC$ thì $' + vt('MB') + '+' + vt('MC') + '=\\vec 0$ và với mọi điểm $A$: $' + vt('AB') + '+' + vt('AC') + '=2' + vt('AM') + '$.</li></ul>',
+    tao: function (r) {
+      var t = r.tron(['A', 'B', 'C']), X = t[0], Y = t[1], Z = t[2];
+      if (r.tung()) {
+        var p = L.tronPA(r, '$' + vt('G' + X) + '+' + vt('G' + Z) + '=' + vt(Y + 'G') + '$', ['$' + vt(X + 'G') + '+' + vt(Z + 'G') + '=' + vt(Y + 'G') + '$', '$' + vt('G' + Y) + '+' + vt('G' + Z) + '=2' + vt('G' + X) + '$', '$' + vt('G' + X) + '+' + vt('G' + Y) + '=' + vt('G' + Z) + '$']);
+        return { loai: 'tn', de: 'Cho tam giác $ABC$ có trọng tâm $G$. Khẳng định nào sau đây là <b>đúng</b>?', pa: p.pa, dung: p.dung,
+          giai: 'Vì $G$ là trọng tâm nên $' + vt('GA') + '+' + vt('GB') + '+' + vt('GC') + '=\\vec 0$ $\\Rightarrow$ $' + vt('G' + X) + '+' + vt('G' + Z) + '=-' + vt('G' + Y) + '=' + vt(Y + 'G') + '$.' };
+      }
+      var p2 = L.tronPA(r, '$' + vt(X + Y) + '+' + vt(X + Z) + '=2' + vt(X + 'M') + '$', ['$' + vt(X + Y) + '+' + vt(X + Z) + '=' + vt(X + 'M') + '$', '$' + vt(X + Y) + '+' + vt(X + Z) + '=2' + vt('M' + X) + '$', '$' + vt(X + Y) + '-' + vt(X + Z) + '=2' + vt(X + 'M') + '$']);
+      return { loai: 'tn', de: 'Cho tam giác $ABC$, gọi $M$ là trung điểm của cạnh $' + Y + Z + '$. Khẳng định nào sau đây là <b>đúng</b>?', pa: p2.pa, dung: p2.dung,
+        giai: '$M$ là trung điểm $' + Y + Z + '$ nên $' + vt('M' + Y) + '+' + vt('M' + Z) + '=\\vec 0$. Do đó $' + vt(X + Y) + '+' + vt(X + Z) + '=' + vt(X + 'M') + '+' + vt('M' + Y) + '+' + vt(X + 'M') + '+' + vt('M' + Z) + '=2' + vt(X + 'M') + '$.' };
+    } });
+
+  cau.push({ phan: 1, chuDe: 'Độ dài vectơ tổng, hiệu',
+    kienThuc: '<ul><li>Muốn tính $|\\vec a\\pm\\vec b|$: thu gọn thành <b>một vectơ</b> rồi tính độ dài đoạn thẳng tương ứng.</li><li>$' + vt('AB') + '-' + vt('AC') + '=' + vt('CB') + '$ nên $|' + vt('AB') + '-' + vt('AC') + '|=BC$.</li><li>$' + vt('AB') + '+' + vt('AC') + '=2' + vt('AM') + '$ ($M$ là trung điểm $BC$) nên $|' + vt('AB') + '+' + vt('AC') + '|=2AM$.</li><li>Tam giác vuông cân cạnh góc vuông $x$ có cạnh huyền $x\\sqrt2$; tam giác đều cạnh $x$ có đường trung tuyến $\\dfrac{x\\sqrt3}{2}$.</li></ul>',
+    tao: function (r) {
+      var k = r.so(2, 9);
+      if (r.tung()) {
+        var p = L.tronPA(r, '$' + can(k, 1, 2, 'a') + '$', ['$' + can(k, 2, 2, 'a') + '$', '$' + can(k, 1, 1, 'a') + '$', '$' + can(k, 1, 3, 'a') + '$']);
+        return { loai: 'tn', de: 'Cho tam giác $ABC$ vuông cân tại $A$ có $AB=' + k + 'a$. Độ dài của vectơ $' + vt('AB') + '-' + vt('AC') + '$ bằng', pa: p.pa, dung: p.dung,
+          giai: '$' + vt('AB') + '-' + vt('AC') + '=' + vt('CB') + '$ nên $|' + vt('AB') + '-' + vt('AC') + '|=BC=\\sqrt{AB^2+AC^2}=\\sqrt{(' + k + 'a)^2+(' + k + 'a)^2}=' + can(k, 1, 2, 'a') + '$.' };
+      }
+      var p2 = L.tronPA(r, '$' + can(k, 1, 3, 'a') + '$', ['$' + can(k, 2, 3, 'a') + '$', '$' + can(k, 1, 1, 'a') + '$', '$' + can(2 * k, 1, 1, 'a') + '$']);
+      return { loai: 'tn', de: 'Cho tam giác đều $ABC$ có cạnh bằng $' + k + 'a$. Độ dài của vectơ $' + vt('AB') + '+' + vt('AC') + '$ bằng', pa: p2.pa, dung: p2.dung,
+        giai: 'Gọi $M$ là trung điểm $BC$: $' + vt('AB') + '+' + vt('AC') + '=2' + vt('AM') + '$. Đường trung tuyến $AM=\\dfrac{' + k + 'a\\sqrt3}{2}$ nên $|' + vt('AB') + '+' + vt('AC') + '|=2AM=' + can(k, 1, 3, 'a') + '$.' };
+    } });
+
+  cau.push({ phan: 1, chuDe: 'Toạ độ trung điểm',
+    kienThuc: '<ul><li>Trung điểm $I$ của $AB$: $x_I=\\dfrac{x_A+x_B}{2}$, $y_I=\\dfrac{y_A+y_B}{2}$ (cộng rồi chia đôi, không trừ).</li><li>Trọng tâm $G$ của tam giác $ABC$: $x_G=\\dfrac{x_A+x_B+x_C}{3}$, $y_G=\\dfrac{y_A+y_B+y_C}{3}$.</li></ul>',
+    tao: function (r) {
+      var xA = r.so(-6, 7), yA = r.so(-6, 7), xB = xA + 2 * r.soKhac0(-4, 4), yB = yA + 2 * r.soKhac0(-4, 4);
+      var xI = (xA + xB) / 2, yI = (yA + yB) / 2;
+      var sai = L.khacNhau([td(xA + xB, yA + yB), td((xB - xA) / 2, (yB - yA) / 2), td(yI, xI), td(xA, yA), td(-xI, -yI)].filter(function (x) { return x !== td(xI, yI); }), 3);
+      var p = L.tronPA(r, '$I' + td(xI, yI) + '$', sai.map(function (x) { return '$I' + x + '$'; }));
+      return { loai: 'tn', de: 'Trong mặt phẳng toạ độ $Oxy$, cho hai điểm $A' + td(xA, yA) + '$ và $B' + td(xB, yB) + '$. Toạ độ trung điểm $I$ của đoạn thẳng $AB$ là', pa: p.pa, dung: p.dung,
+        giai: '$x_I=\\dfrac{' + xA + '+' + ng(xB) + '}{2}=' + xI + '$, $y_I=\\dfrac{' + yA + '+' + ng(yB) + '}{2}=' + yI + '$. Vậy $I' + td(xI, yI) + '$.' };
+    } });
+
+  cau.push({ phan: 1, chuDe: 'Toạ độ của vectơ $m\\vec a\\pm n\\vec b$',
+    kienThuc: '<ul><li>$\\vec a=(x_1;y_1)$, $\\vec b=(x_2;y_2)$ thì $\\vec a+\\vec b=(x_1+x_2;y_1+y_2)$, $\\vec a-\\vec b=(x_1-x_2;y_1-y_2)$, $k\\vec a=(kx_1;ky_1)$.</li><li>Tính từng hoành độ, từng tung độ riêng; cẩn thận dấu trừ trước số âm.</li></ul>',
+    tao: function (r) {
+      var x1 = r.soKhac0(-4, 4), y1 = r.soKhac0(-4, 4), x2 = r.soKhac0(-4, 4), y2 = r.soKhac0(-4, 4), m = r.so(2, 3), n = r.so(2, 3), tru = r.tung(), s = tru ? -1 : 1;
+      var u = [m * x1 + s * n * x2, m * y1 + s * n * y2], kh = [m * x1 - s * n * x2, m * y1 - s * n * y2];
+      var sai = L.khacNhau([td(kh[0], kh[1]), td(u[0], -u[1]), td(-u[0], -u[1]), td(-u[0], u[1])].filter(function (x) { return x !== td(u[0], u[1]); }), 3);
+      var p = L.tronPA(r, '$' + td(u[0], u[1]) + '$', sai.map(function (x) { return '$' + x + '$'; }));
+      return { loai: 'tn', de: 'Trong mặt phẳng toạ độ $Oxy$, cho hai vectơ $\\vec a=' + td(x1, y1) + '$ và $\\vec b=' + td(x2, y2) + '$. Toạ độ của vectơ $\\vec u=' + m + '\\vec a' + (tru ? '-' : '+') + n + '\\vec b$ là', pa: p.pa, dung: p.dung,
+        giai: '$' + m + '\\vec a=' + td(m * x1, m * y1) + '$, $' + n + '\\vec b=' + td(n * x2, n * y2) + '$.<br>$\\vec u=(' + (m * x1) + (tru ? '-' : '+') + ng(n * x2) + ';' + (m * y1) + (tru ? '-' : '+') + ng(n * y2) + ')=' + td(u[0], u[1]) + '$.' };
+    } });
+
+  cau.push({ phan: 1, chuDe: 'Biểu thức toạ độ của tích vô hướng',
+    kienThuc: '<ul><li>$\\vec a=(x_1;y_1)$, $\\vec b=(x_2;y_2)$ thì $\\vec a\\cdot\\vec b=x_1x_2+y_1y_2$ (nhân hoành với hoành, tung với tung rồi <b>cộng</b>).</li><li>$\\vec a\\perp\\vec b\\Leftrightarrow x_1x_2+y_1y_2=0$.</li></ul>',
+    tao: function (r) {
+      var x1 = r.soKhac0(-5, 5), y1 = r.soKhac0(-5, 5), x2 = r.soKhac0(-5, 5), y2 = r.soKhac0(-5, 5), d = x1 * x2 + y1 * y2;
+      if (d === 0) throw new Error('lai');
+      var sai = L.khacNhau([x1 * x2 - y1 * y2, -d, x1 * y2 + y1 * x2, d + 2 * (y1 * y2 || 1)].filter(function (x) { return x !== d; }).map(String), 3);
+      var p = L.tronPA(r, '$' + d + '$', sai.map(function (x) { return '$' + x + '$'; }));
+      return { loai: 'tn', de: 'Trong mặt phẳng toạ độ $Oxy$, cho hai vectơ $\\vec a=' + td(x1, y1) + '$ và $\\vec b=' + td(x2, y2) + '$. Tích vô hướng $\\vec a\\cdot\\vec b$ bằng', pa: p.pa, dung: p.dung,
+        giai: '$\\vec a\\cdot\\vec b=' + x1 + '\\cdot ' + ng(x2) + '+' + ng(y1) + '\\cdot ' + ng(y2) + '=' + d + '$.' };
+    } });
+
+  cau.push({ phan: 1, chuDe: 'Định lí sin',
+    kienThuc: '<ul><li>Định lí sin: $\\dfrac{BC}{\\sin A}=\\dfrac{AC}{\\sin B}=\\dfrac{AB}{\\sin C}=2R$ (mỗi cạnh đi với sin của góc <b>đối diện</b>).</li><li>$\\sin30^\\circ=\\dfrac12$, $\\sin45^\\circ=\\dfrac{\\sqrt2}{2}$, $\\sin60^\\circ=\\dfrac{\\sqrt3}{2}$, $\\sin(180^\\circ-\\alpha)=\\sin\\alpha$.</li></ul>',
+    tao: function (r) {
+      var cap = [[45, 60], [60, 45], [30, 45], [45, 30], [30, 60], [60, 30], [30, 135], [135, 30], [45, 120], [120, 45], [30, 120], [120, 30]];
+      var g = r.chon(cap), A = g[0], B = g[1], k = r.so(2, 8), rA = SIN[A][2], rB = SIN[B][2];
+      var dung = can(k, rA, rA * rB), nghich = can(k, rB, rA * rB), gap2 = can(2 * k, rA, rA * rB), nua = can(k, 2 * rA, rA * rB);
+      var p = L.tronPA(r, '$' + dung + '$', ['$' + nghich + '$', '$' + gap2 + '$', '$' + nua + '$']);
+      return { loai: 'tn', de: 'Cho tam giác $ABC$ có $BC=' + k + '$, $\\widehat A=' + A + '^\\circ$ và $\\widehat B=' + B + '^\\circ$. Độ dài cạnh $AC$ bằng', pa: p.pa, dung: p.dung,
+        giai: 'Theo định lí sin: $\\dfrac{BC}{\\sin A}=\\dfrac{AC}{\\sin B}$ $\\Rightarrow$ $AC=\\dfrac{BC\\cdot\\sin B}{\\sin A}=\\dfrac{' + k + '\\cdot\\sin' + B + '^\\circ}{\\sin' + A + '^\\circ}=\\dfrac{' + k + '\\cdot ' + trig(SIN, B) + '}{' + trig(SIN, A) + '}=' + dung + '$.' };
+    } });
+
+  cau.push({ phan: 1, chuDe: 'Tích của một số với một vectơ',
+    kienThuc: '<ul><li>$\\vec v=k\\vec u$ thì $|\\vec v|=|k|\\cdot|\\vec u|$; $k>0$: $\\vec v$ <b>cùng hướng</b> $\\vec u$, $k<0$: <b>ngược hướng</b>.</li><li>Trên lưới ô vuông, so sánh độ dài hai vectơ cùng phương bằng số ô theo một chiều (ngang hoặc dọc): $|k|=\\dfrac{|\\vec v|}{|\\vec u|}$.</li></ul>',
+    tao: function (r) {
+      var huong = r.chon([[2, 1], [1, 1], [3, 1], [1, 2], [2, -1], [1, -1], [3, -1]]), dx = huong[0], dy = huong[1], ady = Math.abs(dy), m, n, dem = 0;
+      do { m = r.so(1, 4); n = r.so(1, 4); dem++; } while ((m === n || m * dx > 6 || n * dx > 5 || m * ady > 4 || n * ady > 4) && dem < 200);
+      if (m === n || m * dx > 6 || n * dx > 5 || m * ady > 4 || n * ady > 4) throw new Error('lai');
+      var cung = r.tung(), k = ps(cung ? n : -n, m), kn = ps(cung ? -n : n, m), d1 = ps(cung ? m : -m, n), d2 = ps(cung ? -m : m, n);
+      var fmt = function (x) { return '$\\vec v=' + (x === '1' ? '' : x === '-1' ? '-' : x) + '\\vec u$'; };
+      var p = L.tronPA(r, fmt(k), [fmt(kn), fmt(d1), fmt(d2)]);
+      // hình lưới 14 x 6 ô
+      var o = 30, W = 14 * o, H = 6 * o, s = '<svg viewBox="0 0 ' + (W + 2) + ' ' + (H + 2) + '" class="hinh" role="img" aria-label="Hai vectơ u và v trên lưới ô vuông">' + L.muiTen('mt-luoi', '#111') + '<g transform="translate(1,1)">';
+      for (var i = 0; i <= 14; i++) s += '<line x1="' + i * o + '" y1="0" x2="' + i * o + '" y2="' + H + '" stroke="#bbb" stroke-width="1"/>';
+      for (var j = 0; j <= 6; j++) s += '<line x1="0" y1="' + j * o + '" x2="' + W + '" y2="' + j * o + '" stroke="#bbb" stroke-width="1"/>';
+      var P = function (x, y) { return [x * o, H - y * o]; }, y0 = dy > 0 ? 1 : 5;
+      var u1 = P(1, y0), u2 = P(1 + m * dx, y0 + m * dy), vA = P(8, y0), vB = P(8 + n * dx, y0 + n * dy), v1 = cung ? vA : vB, v2 = cung ? vB : vA;
+      var duong = function (a, b, ten) {
+        var mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2, len = Math.hypot(b[0] - a[0], b[1] - a[1]), nx = -(b[1] - a[1]) / len, ny = (b[0] - a[0]) / len;
+        if (ny > 0) { nx = -nx; ny = -ny; }
+        return '<line x1="' + a[0] + '" y1="' + a[1] + '" x2="' + b[0] + '" y2="' + b[1] + '" stroke="#111" stroke-width="3" marker-end="url(#mt-luoi)"/><circle cx="' + a[0] + '" cy="' + a[1] + '" r="4.5" fill="#111"/>' +
+          L.chu(mx + nx * 18, my + ny * 18 + 7, ten + '<tspan font-size="14" dx="-11" dy="-14">→</tspan>', 22);
+      };
+      s += duong(u1, u2, 'u') + duong(v1, v2, 'v') + '</g></svg>';
+      var soO = function (t) { return Math.abs(t * dx) + ' ô ngang' + (ady ? ', ' + t * ady + ' ô dọc' : ''); };
+      return { loai: 'tn', de: 'Cho hai vectơ $\\vec u$, $\\vec v$ trong hình sau. Đẳng thức nào sau đây <b>đúng</b>?', hinh: s, pa: p.pa, dung: p.dung,
+        giai: '$\\vec u$ đi ' + soO(m) + '; $\\vec v$ đi ' + soO(n) + ' nên $|\\vec v|=' + ps(n, m) + '|\\vec u|$. Hai vectơ <b>' + (cung ? 'cùng hướng' : 'ngược hướng') + '</b> nên ' + fmt(k) + '.' };
+    } });
+
+  cau.push({ phan: 1, chuDe: 'Tích vô hướng theo định nghĩa',
+    kienThuc: '<ul><li>$' + vt('AB') + '\\cdot' + vt('AC') + '=AB\\cdot AC\\cdot\\cos\\widehat{BAC}$ (hai vectơ <b>chung điểm đầu</b> thì góc giữa chúng là góc của tam giác).</li><li>$\\cos120^\\circ=-\\dfrac12$, $\\cos135^\\circ=-\\dfrac{\\sqrt2}{2}$, $\\cos150^\\circ=-\\dfrac{\\sqrt3}{2}$: góc tù thì tích vô hướng âm.</li></ul>',
+    tao: function (r) {
+      var A = r.chon([30, 45, 60, 120, 135, 150]), b = r.so(2, 8), c = r.so(2, 8);
+      if (b === c || (b * c) % 2) throw new Error('lai');
+      var C = COS[A], S = SIN[A], dung = can(C[0] * b * c, C[1], C[2]);
+      var sai = L.khacNhau([can(-C[0] * b * c, C[1], C[2]), can(S[0] * b * c, S[1], S[2]), String(b * c), can(2 * C[0] * b * c, C[1], C[2])].filter(function (x) { return x !== dung; }), 3);
+      var p = L.tronPA(r, '$' + dung + '$', sai.map(function (x) { return '$' + x + '$'; }));
+      return { loai: 'tn', de: 'Cho tam giác $ABC$ có $AB=' + c + '$, $AC=' + b + '$ và $\\widehat A=' + A + '^\\circ$. Tích vô hướng $' + vt('AB') + '\\cdot' + vt('AC') + '$ bằng', pa: p.pa, dung: p.dung,
+        giai: '$' + vt('AB') + '\\cdot' + vt('AC') + '=AB\\cdot AC\\cdot\\cos A=' + c + '\\cdot ' + b + '\\cdot\\cos' + A + '^\\circ=' + (b * c) + '\\cdot\\left(' + trig(COS, A) + '\\right)=' + dung + '$.' };
+    } });
+
+  /* ======================= PHẦN II ======================= */
+  function chonDS(r, ds) { // mỗi ý: [phát biểu đúng, phát biểu sai, lời giải]; chọn ngẫu nhiên đúng/sai, không để cả 4 ý cùng loại
+    var chon = ds.map(function () { return r.tung(); });
+    if (chon.every(Boolean) || !chon.some(Boolean)) chon[r.so(0, 3)] = !chon[0];
+    return ds.map(function (y, i) { return { t: chon[i] ? y[0] : y[1], dung: chon[i], giai: y[2] }; });
+  }
+  cau.push({ phan: 2, chuDe: 'Giao, hợp, hiệu của các khoảng, đoạn, nửa khoảng',
+    kienThuc: '<ul><li>Biểu diễn hai tập trên cùng một trục số rồi đọc kết quả. Dấu ngoặc vuông $[\\;]$: lấy đầu mút; ngoặc tròn $(\\;)$: không lấy.</li><li>$A\\cap B$: phần chung; $A\\cup B$: gộp lại; $A\\setminus B$: phần của $A$ bỏ đi phần thuộc $B$.</li><li>Khi bỏ đi tập $B$, đầu mút nào $B$ <b>lấy</b> thì $A\\setminus B$ <b>không lấy</b> và ngược lại.</li></ul>',
+    tao: function (r) {
+      var a = r.so(-9, 0), c = a + r.so(2, 6), b = c + r.so(1, 5), d = b + r.so(2, 7);
+      var la = r.tung(), ra = !la || r.tung(), lc = r.tung(), rd = r.tung(), D = L.doanSo;
+      var I = [c, b, lc, ra], U = [a, d, la, rd], AB = [a, c, la, !lc], BA = [b, d, !ra, rd];
+      var dat = function (x, latTrai) { return D(x[0], x[1], latTrai ? !x[2] : x[2], latTrai ? x[3] : !x[3]); };
+      var y = chonDS(r, [
+        ['$A\\cap B=' + D.apply(null, I) + '$', '$A\\cap B=' + dat(I, r.tung()) + '$', '$A\\cap B=' + D.apply(null, I) + '$ (phần chung của hai tập trên trục số).'],
+        ['$A\\cup B=' + D.apply(null, U) + '$', '$A\\cup B=' + dat(U, true) + '$', '$A\\cup B=' + D.apply(null, U) + '$.'],
+        ['$A\\setminus B=' + D.apply(null, AB) + '$', '$A\\setminus B=' + dat(AB, false) + '$', '$A\\setminus B=' + D.apply(null, AB) + '$ (bỏ khỏi $A$ phần từ $' + c + '$ trở đi; $B$ ' + (lc ? 'lấy' : 'không lấy') + ' $' + c + '$ nên $A\\setminus B$ ' + (lc ? 'không lấy' : 'lấy') + ' $' + c + '$).'],
+        ['$B\\setminus A=' + D.apply(null, BA) + '$', '$B\\setminus A=' + dat(BA, true) + '$', '$B\\setminus A=' + D.apply(null, BA) + '$ ($A$ ' + (ra ? 'lấy' : 'không lấy') + ' $' + b + '$ nên $B\\setminus A$ ' + (ra ? 'không lấy' : 'lấy') + ' $' + b + '$).']
+      ]);
+      return { loai: 'ds', de: 'Cho hai tập hợp $A=' + D(a, b, la, ra) + '$ và $B=' + D(c, d, lc, rd) + '$. Xét tính Đúng – Sai trong các khẳng định sau.', y: y };
+    } });
+
+  cau.push({ phan: 2, chuDe: 'Tổng, hiệu vectơ trong hình chữ nhật',
+    kienThuc: '<ul><li>Quy tắc hình bình hành: $ABCD$ là hình bình hành thì $' + vt('AB') + '+' + vt('AD') + '=' + vt('AC') + '$.</li><li>Quy tắc hiệu: $' + vt('AB') + '-' + vt('AD') + '=' + vt('DB') + '$.</li><li>Hình chữ nhật: hai đường chéo bằng nhau, $AC=\\sqrt{AB^2+AD^2}$.</li><li>$M$ là trung điểm $CD$ thì $' + vt('AM') + '=\\dfrac12(' + vt('AC') + '+' + vt('AD') + ')$ và $' + vt('DM') + '=' + vt('MC') + '$.</li></ul>',
+    tao: function (r) {
+      var t = r.chon(PYTAGO.slice(0, 5)), sw = r.tung(), p = sw ? t[1] : t[0], q = sw ? t[0] : t[1], dc = t[2];
+      var yc = r.tung() ? ['$' + vt('AM') + '=\\dfrac12\\left(' + vt('AC') + '+' + vt('AD') + '\\right)$', '$' + vt('AM') + '=\\dfrac12\\left(' + vt('AC') + '+' + vt('AB') + '\\right)$']
+        : ['$' + vt('AM') + '=' + vt('AD') + '+\\dfrac12' + vt('AB') + '$', '$' + vt('AM') + '=' + vt('AB') + '+\\dfrac12' + vt('AD') + '$'];
+      var y = chonDS(r, [
+        ['$\\left|' + vt('AC') + '\\right|=' + dc + 'a$', '$\\left|' + vt('AC') + '\\right|=' + (p + q) + 'a$', '$\\left|' + vt('AC') + '\\right|=AC=\\sqrt{AB^2+BC^2}=\\sqrt{(' + p + 'a)^2+(' + q + 'a)^2}=' + dc + 'a$.'],
+        ['$\\left|' + vt('AB') + '-' + vt('AD') + '\\right|=' + dc + 'a$', '$\\left|' + vt('AB') + '-' + vt('AD') + '\\right|=' + Math.abs(p - q) + (Math.abs(p - q) === 1 ? '' : '') + 'a$', '$' + vt('AB') + '-' + vt('AD') + '=' + vt('DB') + '$ nên $\\left|' + vt('AB') + '-' + vt('AD') + '\\right|=BD=AC=' + dc + 'a$.'],
+        [yc[0], yc[1], '$M$ là trung điểm $CD$: $' + vt('AM') + '=\\dfrac12\\left(' + vt('AC') + '+' + vt('AD') + '\\right)$; cũng có $' + vt('AM') + '=' + vt('AD') + '+' + vt('DM') + '=' + vt('AD') + '+\\dfrac12' + vt('AB') + '$.'],
+        ['$' + vt('AM') + '-' + vt('AD') + '=' + vt('BC') + '-' + vt('BM') + '$', '$' + vt('AM') + '-' + vt('AD') + '=' + vt('BM') + '-' + vt('BC') + '$', '$' + vt('AM') + '-' + vt('AD') + '=' + vt('DM') + '$; $' + vt('BC') + '-' + vt('BM') + '=' + vt('MC') + '$; $' + vt('BM') + '-' + vt('BC') + '=' + vt('CM') + '$. Vì $' + vt('DM') + '=' + vt('MC') + '$ nên chỉ đẳng thức với $' + vt('BC') + '-' + vt('BM') + '$ là đúng.']
+      ]);
+      return { loai: 'ds', de: 'Cho hình chữ nhật $ABCD$ có $AB=' + p + 'a$ và $AD=' + q + 'a$. Gọi $M$ là trung điểm của cạnh $CD$. Xét tính Đúng – Sai trong các khẳng định sau.', y: y };
+    } });
+
+  cau.push({ phan: 2, chuDe: 'Toạ độ vectơ, trọng tâm, tích vô hướng, hình bình hành',
+    kienThuc: '<ul><li>$' + vt('AB') + '=(x_B-x_A;y_B-y_A)$ (điểm cuối trừ điểm đầu).</li><li>Trọng tâm: $G\\left(\\dfrac{x_A+x_B+x_C}{3};\\dfrac{y_A+y_B+y_C}{3}\\right)$.</li><li>$\\vec a\\cdot\\vec b=x_1x_2+y_1y_2$.</li><li>$ABCD$ là hình bình hành $\\Leftrightarrow$ $' + vt('AD') + '=' + vt('BC') + '$ $\\Leftrightarrow$ $x_D=x_A+x_C-x_B$, $y_D=y_A+y_C-y_B$.</li></ul>',
+    tao: function (r) {
+      var xA = r.so(-5, 6), yA = r.so(-5, 6), xB = r.so(-5, 6), yB = r.so(-5, 6), xC = r.so(-5, 6), yC = r.so(-5, 6);
+      var u = [xB - xA, yB - yA], v = [xC - xA, yC - yA];
+      if (u[0] * v[1] - u[1] * v[0] === 0 || u[0] === 0) throw new Error('lai');
+      var sx = xA + xB + xC, sy = yA + yB + yC, tich = u[0] * v[0] + u[1] * v[1], tichSai = u[0] * v[0] - u[1] * v[1];
+      if (tichSai === tich) tichSai = tich + 2;
+      if (sx === 0 && sy === 0) throw new Error('lai');
+      var G = '\\left(' + ps(sx, 3) + ';' + ps(sy, 3) + '\\right)', Gs = '\\left(' + ps(sx, 2) + ';' + ps(sy, 2) + '\\right)';
+      if (G === Gs) throw new Error('lai');
+      var D = [xA + xC - xB, yA + yC - yB], Ds = [xB + xC - xA, yB + yC - yA];
+      var y = chonDS(r, [
+        ['$' + vt('AB') + '=' + td(u[0], u[1]) + '$', '$' + vt('AB') + '=' + td(-u[0], u[1]) + '$', '$' + vt('AB') + '=(' + xB + '-' + ng(xA) + ';' + yB + '-' + ng(yA) + ')=' + td(u[0], u[1]) + '$.'],
+        ['Trọng tâm của tam giác $ABC$ là $G' + G + '$.', 'Trọng tâm của tam giác $ABC$ là $G' + Gs + '$.', '$x_G=\\dfrac{' + xA + '+' + ng(xB) + '+' + ng(xC) + '}{3}=' + ps(sx, 3) + '$, $y_G=\\dfrac{' + yA + '+' + ng(yB) + '+' + ng(yC) + '}{3}=' + ps(sy, 3) + '$.'],
+        ['$' + vt('AB') + '\\cdot' + vt('AC') + '=' + tich + '$', '$' + vt('AB') + '\\cdot' + vt('AC') + '=' + tichSai + '$', '$' + vt('AC') + '=' + td(v[0], v[1]) + '$, $' + vt('AB') + '\\cdot' + vt('AC') + '=' + u[0] + '\\cdot ' + ng(v[0]) + '+' + ng(u[1]) + '\\cdot ' + ng(v[1]) + '=' + tich + '$.'],
+        ['Với $D' + td(D[0], D[1]) + '$ thì tứ giác $ABCD$ là hình bình hành.', 'Với $D' + td(Ds[0], Ds[1]) + '$ thì tứ giác $ABCD$ là hình bình hành.', '$ABCD$ là hình bình hành $\\Leftrightarrow' + vt('AD') + '=' + vt('BC') + '=' + td(xC - xB, yC - yB) + '$ $\\Rightarrow D' + td(D[0], D[1]) + '$.']
+      ]);
+      return { loai: 'ds', de: 'Trong mặt phẳng toạ độ $Oxy$, cho ba điểm $A' + td(xA, yA) + '$, $B' + td(xB, yB) + '$ và $C' + td(xC, yC) + '$. Xét tính Đúng – Sai trong các khẳng định sau.', y: y };
+    } });
+
+  cau.push({ phan: 2, chuDe: 'Giải tam giác: định lí côsin, sin, diện tích, bán kính',
+    kienThuc: '<ul><li>$a^2=b^2+c^2-2bc\\cos A$; $\\cos C=\\dfrac{a^2+b^2-c^2}{2ab}$.</li><li>Diện tích $S=\\dfrac12 bc\\sin A$.</li><li>Định lí sin: $\\dfrac{a}{\\sin A}=2R$ $\\Rightarrow$ $R=\\dfrac{a}{2\\sin A}$.</li><li>Tính góc: bấm máy $\\cos^{-1}$ rồi làm tròn theo yêu cầu.</li></ul>',
+    tao: function (r) {
+      var A = r.tung() ? 60 : 120, t = r.chon(A === 60 ? BO60 : BO120), b = t[0], c = t[1], a = t[2];
+      var gC = Math.acos((a * a + b * b - c * c) / (2 * a * b)) / L.sin(90) * 180 / Math.PI, gB = 180 - A - gC;
+      var hoiC = r.tung(), g = hoiC ? gC : gB, gk = hoiC ? gB : gC, ten = hoiC ? 'C' : 'B';
+      if (L.ganNuaDV(g, 1) || Math.round(g) === Math.round(gk)) throw new Error('lai');
+      var sai2 = A === 60 ? b * b + c * c + b * c : b * b + c * c - b * c;
+      var cosG = hoiC ? [a * a + b * b - c * c, 2 * a * b, 'BC^2+AC^2-AB^2', '2\\cdot BC\\cdot AC', a + '^2+' + b + '^2-' + c + '^2', '2\\cdot ' + a + '\\cdot ' + b]
+        : [a * a + c * c - b * b, 2 * a * c, 'BC^2+AB^2-AC^2', '2\\cdot BC\\cdot AB', a + '^2+' + c + '^2-' + b + '^2', '2\\cdot ' + a + '\\cdot ' + c];
+      var y = chonDS(r, [
+        ['$BC=' + a + '$', '$BC=' + can(1, 1, sai2) + '$', '$BC^2=AB^2+AC^2-2\\cdot AB\\cdot AC\\cdot\\cos A=' + c + '^2+' + b + '^2-2\\cdot ' + c + '\\cdot ' + b + '\\cdot\\cos' + A + '^\\circ=' + (a * a) + '$ $\\Rightarrow BC=' + a + '$.'],
+        ['Số đo góc $\\widehat ' + ten + '$ (làm tròn đến hàng đơn vị) bằng $' + Math.round(g) + '^\\circ$.', 'Số đo góc $\\widehat ' + ten + '$ (làm tròn đến hàng đơn vị) bằng $' + Math.round(gk) + '^\\circ$.',
+          '$\\cos ' + ten + '=\\dfrac{' + cosG[2] + '}{' + cosG[3] + '}=\\dfrac{' + cosG[4] + '}{' + cosG[5] + '}=' + ps(cosG[0], cosG[1]) + '$ $\\Rightarrow\\widehat ' + ten + '\\approx' + L.soVN(g, 2) + '^\\circ\\approx' + Math.round(g) + '^\\circ$.'],
+        ['Diện tích tam giác $ABC$ bằng $' + can(b * c, 4, 3) + '$.', 'Diện tích tam giác $ABC$ bằng $' + can(b * c, 2, 3) + '$.', '$S=\\dfrac12\\cdot AB\\cdot AC\\cdot\\sin A=\\dfrac12\\cdot ' + c + '\\cdot ' + b + '\\cdot\\dfrac{\\sqrt3}{2}=' + can(b * c, 4, 3) + '$.'],
+        ['Bán kính đường tròn ngoại tiếp tam giác $ABC$ bằng $' + can(a, 3, 3) + '$.', 'Bán kính đường tròn ngoại tiếp tam giác $ABC$ bằng $' + can(2 * a, 3, 3) + '$.', '$R=\\dfrac{BC}{2\\sin A}=\\dfrac{' + a + '}{2\\cdot\\frac{\\sqrt3}{2}}=\\dfrac{' + a + '}{\\sqrt3}=' + can(a, 3, 3) + '$.']
+      ]);
+      return { loai: 'ds', de: 'Cho tam giác $ABC$ có $AB=' + c + '$, $AC=' + b + '$ và $\\widehat A=' + A + '^\\circ$. Xét tính Đúng – Sai trong các khẳng định sau.', y: y };
+    } });
+
+  /* ======================= PHẦN III ======================= */
+  cau.push({ phan: 3, chuDe: 'Khoảng cách giữa hai điểm (toạ độ)',
+    kienThuc: '<ul><li>$AB=\\left|' + vt('AB') + '\\right|=\\sqrt{(x_B-x_A)^2+(y_B-y_A)^2}$.</li><li>Trong bài toán thực tế có gắn hệ trục, đổi ra đơn vị theo đề (mỗi đơn vị trên trục là bao nhiêu km, m).</li></ul>',
+    tao: function (r) {
+      var t = r.chon(PYTAGO.slice(0, 5)), sw = r.tung(), dx = (sw ? t[1] : t[0]) * (r.tung() ? 1 : -1), dy = (sw ? t[0] : t[1]) * (r.tung() ? 1 : -1);
+      var xS = r.so(-9, 6), yS = r.so(-9, 6), xT = xS + dx, yT = yS + dy;
+      var bc = r.chon([['Một chiếc cáp treo chạy thẳng từ ga', 'đến ga', 'quãng đường cáp treo', 'km'], ['Một đường dây điện được kéo thẳng từ trạm', 'đến trạm', 'đường dây điện', 'km'], ['Một chiếc flycam bay thẳng từ điểm', 'đến điểm', 'quãng đường flycam bay', 'km']]);
+      return { loai: 'tl', de: 'Trên bản đồ một khu du lịch được gắn hệ trục toạ độ $Oxy$ (đơn vị trên mỗi trục là ' + bc[3] + '). ' + bc[0] + ' $S' + td(xS, yS) + '$ ' + bc[1] + ' $T' + td(xT, yT) + '$. Tính độ dài ' + bc[2] + ' (đơn vị: ' + bc[3] + ').',
+        da: t[2], hienDa: String(t[2]),
+        giai: '$ST=\\sqrt{(x_T-x_S)^2+(y_T-y_S)^2}=\\sqrt{(' + xT + '-' + ng(xS) + ')^2+(' + yT + '-' + ng(yS) + ')^2}=\\sqrt{' + (dx * dx) + '+' + (dy * dy) + '}=' + t[2] + '$ (' + bc[3] + ').' };
+    } });
+
+  cau.push({ phan: 3, chuDe: 'Định lí côsin trong bài toán thực tế',
+    kienThuc: '<ul><li>Biết hai cạnh và góc xen giữa: $a^2=b^2+c^2-2bc\\cos A$.</li><li>$\\cos120^\\circ=-\\dfrac12$ nên với góc $120^\\circ$: $a^2=b^2+c^2+bc$; với góc $60^\\circ$: $a^2=b^2+c^2-bc$.</li></ul>',
+    tao: function (r) {
+      var A = r.tung() ? 120 : 60, t = r.chon(A === 60 ? BO60 : BO120), b = t[1], c = t[0], a = t[2];
+      var dd = r.chon([['Thư viện', 'sân vận động'], ['Trường học', 'bệnh viện'], ['Nhà văn hoá', 'công viên']]);
+      // hình: A ở gốc, AB theo hướng 200°, AC theo hướng 200° - A (giữ góc đúng)
+      var g2 = A === 120 ? 20 : 5, g1 = g2 + A, lb = 100 + 70 * b / Math.max(b, c), lc = 100 + 70 * c / Math.max(b, c); // hình minh hoạ, độ dài gần đúng tỉ lệ
+      var Ax = 0, Ay = 0, Bx = Ax + lb * L.cos(g1), By = Ay - lb * L.sin(g1), Cx = Ax + lc * L.cos(g2), Cy = Ay - lc * L.sin(g2);
+      var xs = [Ax, Bx, Cx], ys = [Ay, By, Cy], x0 = Math.min.apply(null, xs) - 46, x1 = Math.max.apply(null, xs) + 46, y0 = Math.min.apply(null, ys) - 40, y1 = Math.max.apply(null, ys) + 40;
+      var s = '<svg viewBox="' + x0.toFixed(0) + ' ' + y0.toFixed(0) + ' ' + (x1 - x0).toFixed(0) + ' ' + (y1 - y0).toFixed(0) + '" class="hinh hinh-nho" style="max-width:340px" role="img" aria-label="Hai con đường từ ngã ba A">' +
+        '<line x1="' + Ax + '" y1="' + Ay + '" x2="' + (Ax + 1.25 * (Bx - Ax)).toFixed(1) + '" y2="' + (Ay + 1.25 * (By - Ay)).toFixed(1) + '" stroke="#c9b48a" stroke-width="14" stroke-linecap="round"/>' +
+        '<line x1="' + Ax + '" y1="' + Ay + '" x2="' + (Ax + 1.25 * (Cx - Ax)).toFixed(1) + '" y2="' + (Ay + 1.25 * (Cy - Ay)).toFixed(1) + '" stroke="#c9b48a" stroke-width="14" stroke-linecap="round"/>' +
+        '<line x1="' + Bx.toFixed(1) + '" y1="' + By.toFixed(1) + '" x2="' + Cx.toFixed(1) + '" y2="' + Cy.toFixed(1) + '" stroke="#1f6fd1" stroke-width="2" stroke-dasharray="6 5"/>' +
+        L.cungGoc(Ax, Ay, 26, g2, g1) + L.chu(Ax + 44 * L.cos((g1 + g2) / 2), Ay - 44 * L.sin((g1 + g2) / 2) + 6, A + '°', 15, 'font-style="normal"') +
+        L.cham(Ax, Ay) + L.cham(Bx, By) + L.cham(Cx, Cy) +
+        L.chu(Ax, Ay + 26, 'A') + L.chu(Bx - 14, By - 10, 'B') + L.chu(Cx + 14, Cy - 10, 'C') + '</svg>';
+      return { loai: 'tl', de: 'Từ ngã ba $A$, hai con đường thẳng $AB$ và $AC$ hợp với nhau một góc $' + A + '^\\circ$. ' + dd[0] + ' ở vị trí $B$ cách $A$ là $' + b + '$ km, ' + dd[1] + ' ở vị trí $C$ cách $A$ là $' + c + '$ km. Hỏi khoảng cách giữa ' + dd[0].toLowerCase() + ' và ' + dd[1] + ' (theo đường chim bay) bằng bao nhiêu km?',
+        hinh: s, da: a, hienDa: String(a),
+        giai: '$BC^2=AB^2+AC^2-2\\cdot AB\\cdot AC\\cdot\\cos A=' + b + '^2+' + c + '^2-2\\cdot ' + b + '\\cdot ' + c + '\\cdot\\cos' + A + '^\\circ=' + (a * a) + '$ $\\Rightarrow BC=' + a + '$ (km).' };
+    } });
+
+  cau.push({ phan: 3, chuDe: 'Đo khoảng cách hai điểm không đến được (định lí sin, côsin)',
+    kienThuc: '<ul><li>Biết một cạnh và hai góc kề: tính góc còn lại ($180^\\circ$ trừ tổng hai góc), rồi dùng định lí sin $\\dfrac{a}{\\sin A}=\\dfrac{b}{\\sin B}$ để tính cạnh.</li><li>Biết hai cạnh và góc xen giữa: dùng định lí côsin để tính cạnh thứ ba.</li><li>Giữ nhiều chữ số thập phân ở bước trung gian (dùng bộ nhớ máy tính), chỉ làm tròn ở kết quả cuối.</li></ul>',
+    tao: function (r) {
+      var AB = r.chon([300, 400, 500, 600]), a1 = r.chon([60, 65, 70, 75, 80]), b1 = r.chon([40, 45, 50, 55]), a2 = r.chon([30, 35, 40, 45]), b2 = r.chon([90, 95, 100, 105, 110]);
+      if (a1 - a2 < 20 || a1 + b1 > 130 || a2 + b2 > 150) throw new Error('lai');
+      var C1 = 180 - a1 - b1, D1 = 180 - a2 - b2, AC = AB * L.sin(b1) / L.sin(C1), AD = AB * L.sin(b2) / L.sin(D1), g = a1 - a2;
+      var CD = Math.sqrt(AC * AC + AD * AD - 2 * AC * AD * L.cos(g));
+      if (L.ganNuaDV(CD, 1)) throw new Error('lai');
+      // hình theo đúng số liệu
+      var k = 300 / Math.max(AB, AD * L.cos(a2), AC * L.cos(a1)), H = 0;
+      var P = { A: [0, 0], B: [AB * k, 0], C: [AC * k * L.cos(a1), AC * k * L.sin(a1)], D: [AD * k * L.cos(a2), AD * k * L.sin(a2)] };
+      H = Math.max(P.C[1], P.D[1]);
+      var xmin = Math.min(0, P.C[0], P.D[0]) - 40, xmax = Math.max(P.B[0], P.C[0], P.D[0]) + 40, Y = function (y) { return H + 40 - y; };
+      var s = '<svg viewBox="' + xmin.toFixed(0) + ' 0 ' + (xmax - xmin).toFixed(0) + ' ' + (H + 100).toFixed(0) + '" class="hinh" style="max-width:380px" role="img" aria-label="Hai hòn đảo C, D và hai vị trí A, B trên bờ">' +
+        '<rect x="' + xmin.toFixed(0) + '" y="0" width="' + (xmax - xmin).toFixed(0) + '" height="' + (H + 50).toFixed(0) + '" fill="#d4ecf7"/><rect x="' + xmin.toFixed(0) + '" y="' + (H + 50).toFixed(0) + '" width="' + (xmax - xmin).toFixed(0) + '" height="50" fill="#f5e0b7"/>';
+      [['A', 'C'], ['B', 'C'], ['A', 'D'], ['B', 'D'], ['A', 'B']].forEach(function (e) { s += '<line x1="' + P[e[0]][0].toFixed(1) + '" y1="' + Y(P[e[0]][1]).toFixed(1) + '" x2="' + P[e[1]][0].toFixed(1) + '" y2="' + Y(P[e[1]][1]).toFixed(1) + '" ' + L.NET + '/>'; });
+      ['C', 'D'].forEach(function (t) { s += '<ellipse cx="' + P[t][0].toFixed(1) + '" cy="' + Y(P[t][1]).toFixed(1) + '" rx="22" ry="8" fill="#e8d39e" stroke="#b49a5c"/><ellipse cx="' + P[t][0].toFixed(1) + '" cy="' + (Y(P[t][1]) - 2).toFixed(1) + '" rx="12" ry="5" fill="#7cc36b"/>'; });
+      ['A', 'B', 'C', 'D'].forEach(function (t) { s += L.cham(P[t][0], Y(P[t][1])); });
+      s += L.chu(P.A[0] - 16, Y(0) + 6, 'A') + L.chu(P.B[0] + 16, Y(0) + 6, 'B') + L.chu(P.C[0] - 4, Y(P.C[1]) - 16, 'C') + L.chu(P.D[0] + 4, Y(P.D[1]) - 16, 'D') +
+        L.chu(P.B[0] / 2, Y(0) + 30, AB + ' m', 18, 'font-style="normal" font-weight="bold" fill="#1f6fd1"') + '</svg>';
+      return { loai: 'tl', de: 'Hai hòn đảo nhỏ $C$ và $D$ nằm ngoài khơi. Để tính khoảng cách giữa hai hòn đảo, từ hai vị trí $A$ và $B$ trên bờ biển cách nhau $' + AB + '$ m, người ta đo được $\\widehat{CAB}=' + a1 + '^\\circ$, $\\widehat{CBA}=' + b1 + '^\\circ$, $\\widehat{DAB}=' + a2 + '^\\circ$ và $\\widehat{DBA}=' + b2 + '^\\circ$ (như hình vẽ). Tính khoảng cách giữa hai hòn đảo $C$ và $D$ (đơn vị: m). <b>(Kết quả làm tròn đến hàng đơn vị).</b>',
+        hinh: s, da: Math.round(CD), hienDa: String(Math.round(CD)),
+        giai: 'Tam giác $ABC$: $\\widehat{ACB}=180^\\circ-' + a1 + '^\\circ-' + b1 + '^\\circ=' + C1 + '^\\circ$, $AC=\\dfrac{AB\\cdot\\sin' + b1 + '^\\circ}{\\sin' + C1 + '^\\circ}\\approx' + L.soVN(AC, 2) + '$ (m).<br>' +
+          'Tam giác $ABD$: $\\widehat{ADB}=180^\\circ-' + a2 + '^\\circ-' + b2 + '^\\circ=' + D1 + '^\\circ$, $AD=\\dfrac{AB\\cdot\\sin' + b2 + '^\\circ}{\\sin' + D1 + '^\\circ}\\approx' + L.soVN(AD, 2) + '$ (m).<br>' +
+          '$\\widehat{CAD}=' + a1 + '^\\circ-' + a2 + '^\\circ=' + g + '^\\circ$. Tam giác $ACD$: $CD^2=AC^2+AD^2-2\\cdot AC\\cdot AD\\cdot\\cos' + g + '^\\circ\\approx' + L.soVN(CD * CD, 1) + '$ $\\Rightarrow CD\\approx' + Math.round(CD) + '$ (m).' };
+    } });
+
+  cau.push({ phan: 3, chuDe: 'Bài toán tối ưu (hệ bất phương trình bậc nhất hai ẩn)', nangCao: true,
+    kienThuc: '<ul><li>Gọi ẩn $x,y$ (có điều kiện $x\\ge0$, $y\\ge0$), lập hệ bất phương trình từ các giới hạn (thời gian, nguyên liệu...).</li><li>Biểu diễn miền nghiệm: miền đa giác. Giá trị lớn nhất (nhỏ nhất) của $F=ax+by$ đạt tại <b>một đỉnh</b> của miền đa giác.</li><li>Tìm toạ độ các đỉnh (giao điểm của các đường thẳng biên), tính $F$ tại từng đỉnh rồi so sánh.</li></ul>',
+    tao: function (r) {
+      var x0 = r.so(2, 8), y0 = r.so(2, 8), a1 = r.so(1, 4), b1 = r.so(1, 4), a2 = r.so(1, 4), b2 = r.so(1, 4), p = r.so(2, 9), q = r.so(2, 9);
+      var c1 = a1 * x0 + b1 * y0, c2 = a2 * x0 + b2 * y0;
+      // hai đường thẳng cắt nhau trong góc phần tư thứ nhất tạo miền tứ giác
+      if (!(c1 / a1 > c2 / a2 && c1 / b1 < c2 / b2) || a1 * b2 === a2 * b1) throw new Error('lai');
+      var X = c2 / a2, Yy = c1 / b1, F0 = p * x0 + q * y0, FX = p * X, FY = q * Yy;
+      if (F0 - Math.max(FX, FY) < 1) throw new Error('lai');
+      var sp = r.chon([['sản phẩm I', 'sản phẩm II', 'tấn', 'máy cắt', 'máy đóng gói', 'Sản phẩm I', 'Sản phẩm II'], ['bánh dẻo', 'bánh nướng', 'tạ', 'lò trộn', 'lò nướng', 'Bánh dẻo', 'Bánh nướng'], ['phân bón loại A', 'phân bón loại B', 'tấn', 'dây chuyền nghiền', 'dây chuyền trộn', 'Phân loại A', 'Phân loại B']]);
+      var gio = function (n) { return n + ' giờ'; };
+      // hình minh hoạ: bảng số liệu của xưởng
+      var cot = [0, 180, 300, 420, 540], hang = [0, 56, 102, 148, 194], nen = ['#eef0ff', '#fff', '#f7f8fc', '#fff4de'];
+      var o = function (c, h, t, dam) { return '<text x="' + ((cot[c] + cot[c + 1]) / 2) + '" y="' + (hang[h] + (h ? 29 : 24)) + '" font-size="16" text-anchor="middle" font-family="system-ui,sans-serif" fill="#1f2a5a"' + (dam ? ' font-weight="700"' : '') + '>' + t + '</text>'; };
+      var hinh = '<svg viewBox="-2 -2 544 200" class="hinh" style="max-width:460px" role="img" aria-label="Bảng thời gian dùng máy và tiền lãi">';
+      for (var hh = 0; hh < 4; hh++) hinh += '<rect x="0" y="' + hang[hh] + '" width="540" height="' + (hang[hh + 1] - hang[hh]) + '" fill="' + nen[hh] + '"/>';
+      hinh += '<rect x="0" y="0" width="540" height="194" fill="none" stroke="#5b6b84" stroke-width="1.5" rx="6"/>';
+      [1, 2, 3].forEach(function (c) { hinh += '<line x1="' + cot[c] + '" y1="0" x2="' + cot[c] + '" y2="194" stroke="#c3c9d8"/>'; });
+      [1, 2, 3].forEach(function (h) { hinh += '<line x1="0" y1="' + hang[h] + '" x2="540" y2="' + hang[h] + '" stroke="#c3c9d8"/>'; });
+      var hoa = function (t) { return t.charAt(0).toUpperCase() + t.slice(1); };
+      var dau2 = function (c, t, t2) { return '<text x="' + ((cot[c] + cot[c + 1]) / 2) + '" y="23" font-size="16" font-weight="700" text-anchor="middle" font-family="system-ui,sans-serif" fill="#1f2a5a">' + t + '</text><text x="' + ((cot[c] + cot[c + 1]) / 2) + '" y="44" font-size="13" text-anchor="middle" font-family="system-ui,sans-serif" fill="#5f6b85">' + t2 + '</text>'; };
+      hinh += dau2(1, sp[5], '(mỗi ' + sp[2] + ')') + dau2(2, sp[6], '(mỗi ' + sp[2] + ')') + dau2(3, 'Tối đa', '(mỗi ngày)') +
+        o(0, 1, hoa(sp[3]), true) + o(1, 1, gio(a1)) + o(2, 1, gio(b1)) + o(3, 1, gio(c1)) +
+        o(0, 2, hoa(sp[4]), true) + o(1, 2, gio(a2)) + o(2, 2, gio(b2)) + o(3, 2, gio(c2)) +
+        o(0, 3, 'Tiền lãi', true) + o(1, 3, p + ' triệu') + o(2, 3, q + ' triệu') + o(3, 3, '?', true) + '</svg>';
+      return { loai: 'tl', hinh: hinh, de: 'Một xưởng sản xuất hai loại hàng là ' + sp[0] + ' và ' + sp[1] + '. Để sản xuất mỗi ' + sp[2] + ' ' + sp[0] + ' cần dùng ' + sp[3] + ' trong ' + gio(a1) + ' và ' + sp[4] + ' trong ' + gio(a2) + '; mỗi ' + sp[2] + ' ' + sp[1] + ' cần dùng ' + sp[3] + ' trong ' + gio(b1) + ' và ' + sp[4] + ' trong ' + gio(b2) + '. Mỗi ngày ' + sp[3] + ' làm việc không quá ' + gio(c1) + ', ' + sp[4] + ' làm việc không quá ' + gio(c2) + '. Mỗi ' + sp[2] + ' ' + sp[0] + ' lãi $' + p + '$ triệu đồng, mỗi ' + sp[2] + ' ' + sp[1] + ' lãi $' + q + '$ triệu đồng. Hỏi mỗi ngày xưởng có thể lãi nhiều nhất bao nhiêu triệu đồng?',
+        da: F0, hienDa: String(F0),
+        giai: 'Gọi $x$, $y$ (' + sp[2] + ') lần lượt là số ' + sp[2] + ' ' + sp[0] + ', ' + sp[1] + ' sản xuất mỗi ngày. Ta có hệ: $\\begin{cases}' + L.bieuThuc([[a1, 'x'], [b1, 'y']]) + '\\le ' + c1 + '\\\\' + L.bieuThuc([[a2, 'x'], [b2, 'y']]) + '\\le ' + c2 + '\\\\x\\ge0,\\ y\\ge0\\end{cases}$<br>' +
+          'Lãi $F=' + L.bieuThuc([[p, 'x'], [q, 'y']]) + '$ (triệu đồng). Miền nghiệm là tứ giác $OABC$ với $O(0;0)$, $A\\left(' + ps(c2, a2) + ';0\\right)$, $B' + td(x0, y0) + '$ (giao của hai đường thẳng biên), $C\\left(0;' + ps(c1, b1) + '\\right)$.<br>' +
+          '$F(O)=0$, $F(A)=' + ps(p * c2, a2) + '$, $F(B)=' + F0 + '$, $F(C)=' + ps(q * c1, b1) + '$.<br>Vậy lãi nhiều nhất là $' + F0 + '$ triệu đồng (khi $x=' + x0 + '$, $y=' + y0 + '$).' };
+    } });
+
+  cau.push({ phan: 3, chuDe: 'Toạ độ: điểm làm tổng khoảng cách nhỏ nhất', nangCao: true,
+    kienThuc: '<ul><li>Bài toán "$M$ thuộc đường thẳng $d$, tìm $M$ để $MA+MB$ nhỏ nhất": nếu $A$, $B$ <b>cùng phía</b> với $d$ thì lấy $A\'$ đối xứng với $A$ qua $d$; khi đó $MA+MB=MA\'+MB\\ge A\'B$, dấu bằng khi $M$ là giao điểm của $A\'B$ với $d$.</li><li>Điểm đối xứng của $A(x;y)$ qua trục $Ox$ là $A\'(x;-y)$.</li><li>Ba điểm $A\'$, $M$, $B$ thẳng hàng $\\Leftrightarrow$ $' + vt("A'M") + '$ và $' + vt("A'B") + '$ cùng phương.</li></ul>',
+    tao: function (r) {
+      var x1 = r.so(-6, 4), y1 = r.so(1, 6), x2 = x1 + r.soKhac0(-3, 9), y2 = r.so(1, 6);
+      var tu = (x2 - x1) * y1, mau = y1 + y2, m = x1 + tu / mau;
+      if (Math.abs(Math.round(m * 10) - m * 10) > 1e-9 || x1 === x2) throw new Error('lai');
+      m = Math.round(m * 10) / 10;
+      var bc = r.chon([['Hai khu dân cư', 'nằm cùng phía với một con đường thẳng trùng với trục $Ox$', 'trạm xe buýt $M$ trên con đường', 'tổng quãng đường $MA+MB$'], ['Hai nhà máy', 'nằm cùng phía với bờ sông thẳng trùng với trục $Ox$', 'trạm bơm nước $M$ trên bờ sông', 'tổng độ dài đường ống $MA+MB$']]);
+      // hình: con đường (trục Ox), hai vị trí A, B; điểm M vẽ minh hoạ ở vị trí bất kì (không phải đáp án)
+      var xs = [x1, x2, 0], xl = Math.min.apply(null, xs) - 2, xr = Math.max.apply(null, xs) + 2, k = 360 / (xr - xl), ky = 26;
+      var X = function (x) { return (x - xl) * k; }, Y = function (y) { return 200 - y * ky; }, mv = m + (m + 2 <= xr - 1 ? 2 : -2);
+      var nha = function (x, y, ten, toa) {
+        var cx = X(x), cy = Y(y);
+        return '<path d="M' + (cx - 11) + ',' + cy + ' v-12 l11,-10 l11,10 v12 z" fill="#ffd8a8" stroke="#a5671c" stroke-width="1.5"/><path d="M' + (cx - 14) + ',' + (cy - 11) + ' l14,-13 l14,13" fill="none" stroke="#c0392b" stroke-width="3"/>' +
+          L.cham(cx, cy) + L.chu(cx, cy - 32, ten + '<tspan font-style="normal" font-size="15">' + toa + '</tspan>', 19);
+      };
+      var hinh = '<svg viewBox="0 0 362 250" class="hinh" style="max-width:420px" role="img" aria-label="Hai vị trí A, B cùng phía với con đường trục Ox">' +
+        '<rect x="0" y="' + Y(0) + '" width="362" height="50" fill="' + (bc[0] === 'Hai nhà máy' ? '#cfe8f7' : '#e3e3e3') + '"/>' +
+        '<line x1="0" y1="' + Y(0) + '" x2="358" y2="' + Y(0) + '" stroke="#1f2a5a" stroke-width="2"/><path d="M358,' + Y(0) + ' l-9,-5 v10 z" fill="#1f2a5a"/>' +
+        '<text x="350" y="' + (Y(0) + 22) + '" font-size="16" ' + L.CHU + '>x</text>' + L.chu(X(0) - 8, Y(0) + 20, 'O', 16) +
+        '<line x1="' + X(mv) + '" y1="' + Y(0) + '" x2="' + X(x1) + '" y2="' + Y(y1) + '" stroke="#1f6fd1" stroke-width="2" stroke-dasharray="6 5"/>' +
+        '<line x1="' + X(mv) + '" y1="' + Y(0) + '" x2="' + X(x2) + '" y2="' + Y(y2) + '" stroke="#1f6fd1" stroke-width="2" stroke-dasharray="6 5"/>' +
+        nha(x1, y1, 'A', td(x1, y1)) + nha(x2, y2, 'B', td(x2, y2)) +
+        '<circle cx="' + X(mv) + '" cy="' + Y(0) + '" r="6" fill="#fff" stroke="#e8590c" stroke-width="2.5"/>' + L.chu(X(mv), Y(0) + 40, 'M ?', 17) + '</svg>';
+      return { loai: 'tl', hinh: hinh, de: 'Trên một bản đồ gắn hệ trục toạ độ $Oxy$ (đơn vị: km), ' + bc[0].toLowerCase() + ' ở các vị trí $A' + td(x1, y1) + '$ và $B' + td(x2, y2) + '$ ' + bc[1] + '. Người ta muốn đặt ' + bc[2] + ' sao cho ' + bc[3] + ' là nhỏ nhất. Tìm hoành độ của điểm $M$ (viết dạng số thập phân nếu cần).',
+        da: m, hienDa: L.soVN(m),
+        giai: 'Gọi $A\'' + td(x1, -y1) + '$ đối xứng với $A$ qua $Ox$. Với $M(m;0)$ thuộc $Ox$: $MA=MA\'$ nên $MA+MB=MA\'+MB\\ge A\'B$; dấu bằng khi $A\'$, $M$, $B$ thẳng hàng.<br>' +
+          '$' + vt("A'M") + '=' + td('m-' + ng(x1).replace(/^\((-\d+)\)$/, '($1)'), y1) + '$, $' + vt("A'B") + '=' + td(x2 - x1, y2 + y1) + '$ cùng phương: $\\dfrac{m-' + ng(x1) + '}{' + (x2 - x1) + '}=\\dfrac{' + y1 + '}{' + mau + '}$ $\\Rightarrow m=' + ng(x1) + '+' + ps(tu, mau).replace(/^-/, '(-') + (tu < 0 ? ')' : '') + '=' + L.soVN(m) + '$.' };
+    } });
+
+  cau.push({ phan: 3, chuDe: 'Đo chiều cao (hệ thức lượng trong tam giác, bài toán thực tế)', nangCao: true,
+    kienThuc: '<ul><li>Góc nâng: góc giữa tia nhìn lên đỉnh và phương nằm ngang.</li><li>Hai vị trí quan sát $A$, $B$ thẳng hàng với chân tháp: trong tam giác $ABC$ ($C$ là đỉnh tháp) có $\\widehat{ACB}=\\beta-\\alpha$ (góc ngoài tam giác), dùng định lí sin tính $BC$, rồi $h=BC\\cdot\\sin\\beta$.</li><li>Nhớ cộng chiều cao từ mặt đất đến mắt người quan sát (hoặc đến giác kế).</li></ul>',
+    tao: function (r) {
+      var d = r.chon([20, 24, 25, 30, 35, 40, 45, 50]), a = r.chon([25, 28, 30, 32, 35, 38, 40]), b = a + r.chon([15, 17, 20, 22, 25]), m = r.chon([1.5, 1.6, 1.2]);
+      if (b > 70) throw new Error('lai');
+      var BC = d * L.sin(a) / L.sin(b - a), h = BC * L.sin(b), H = h + m;
+      if (L.ganNuaDV(H, 0.1)) throw new Error('lai');
+      var Hr = Math.round(H * 10) / 10;
+      // hình
+      var W = 420, x0 = 40, chan = 360, yd = 210, kx = (chan - x0) / (d + h / Math.tan(b * Math.PI / 180)), xB = x0 + d * kx, top = 30;
+      var s = '<svg viewBox="0 0 ' + W + ' 250" class="hinh" style="max-width:400px" role="img" aria-label="Đo chiều cao tháp từ hai vị trí A và B">' +
+        '<rect x="0" y="' + yd + '" width="' + W + '" height="40" fill="#e9dcc0"/>' +
+        '<rect x="' + (chan - 4) + '" y="' + top + '" width="26" height="' + (yd - top) + '" fill="#cfd8e3" stroke="#5b6b84"/>' +
+        '<line x1="' + x0 + '" y1="' + (yd - 22) + '" x2="' + chan + '" y2="' + (yd - 22) + '" stroke="#1f2a5a" stroke-width="1.6" stroke-dasharray="6 5"/>' +
+        '<line x1="' + x0 + '" y1="' + (yd - 22) + '" x2="' + chan + '" y2="' + top + '" ' + L.NET + '/><line x1="' + xB.toFixed(1) + '" y1="' + (yd - 22) + '" x2="' + chan + '" y2="' + top + '" ' + L.NET + '/>' +
+        '<line x1="' + x0 + '" y1="' + yd + '" x2="' + x0 + '" y2="' + (yd - 22) + '" stroke="#888" stroke-width="2"/><line x1="' + xB.toFixed(1) + '" y1="' + yd + '" x2="' + xB.toFixed(1) + '" y2="' + (yd - 22) + '" stroke="#888" stroke-width="2"/>' +
+        L.cham(x0, yd - 22) + L.cham(xB, yd - 22) + L.cham(chan, top) +
+        L.chu(x0 - 4, yd - 30, 'A') + L.chu(xB - 4, yd - 30, 'B') + L.chu(chan - 18, top + 6, 'C') +
+        L.chu(x0 + 52, yd - 27, a + '°', 14, 'font-style="normal" fill="#e8590c"') + L.chu(xB + 46, yd - 27, b + '°', 14, 'font-style="normal" fill="#e8590c"') +
+        L.chu((x0 + xB) / 2, yd + 26, d + ' m', 15, 'font-style="normal" font-weight="bold" fill="#1f6fd1"') + '</svg>';
+      return { loai: 'tl', de: 'Để đo chiều cao của một toà tháp, bạn Minh đứng tại vị trí $A$ nhìn lên đỉnh tháp với góc nâng $' + a + '^\\circ$. Minh đi thẳng về phía chân tháp thêm $' + d + '$ m đến vị trí $B$ thì nhìn lên đỉnh tháp với góc nâng $' + b + '^\\circ$. Biết mắt Minh cách mặt đất $' + L.soVN(m) + '$ m và hai vị trí quan sát thẳng hàng với chân tháp. Tính chiều cao của toà tháp (đơn vị: m). <b>(Kết quả làm tròn đến hàng phần mười).</b>',
+        hinh: s, da: Hr, hienDa: L.soVN(Hr),
+        giai: 'Gọi $A$, $B$ là vị trí mắt Minh, $C$ là đỉnh tháp. Tam giác $ABC$: $\\widehat{ACB}=' + b + '^\\circ-' + a + '^\\circ=' + (b - a) + '^\\circ$ (góc ngoài tại $B$).<br>' +
+          'Định lí sin: $BC=\\dfrac{AB\\cdot\\sin' + a + '^\\circ}{\\sin' + (b - a) + '^\\circ}\\approx' + L.soVN(BC, 3) + '$ (m).<br>' +
+          'Phần tháp cao hơn mắt: $h=BC\\cdot\\sin' + b + '^\\circ\\approx' + L.soVN(h, 3) + '$ (m).<br>Chiều cao tháp: $' + L.soVN(h, 3) + '+' + L.soVN(m) + '\\approx' + L.soVN(Hr) + '$ (m).' };
+    } });
+
+  DE_ON_TAP.push({
+    ma: 'L10.ONTAP.HK1', lop: 10, ten: 'Ôn tập kiểm tra cuối học kì I', tenNgan: 'Ôn tập kiểm tra HK1',
+    moTa: 'Một bộ đề 22 câu theo cấu trúc mới: 12 câu trắc nghiệm, 4 câu đúng sai, 6 câu trả lời ngắn. Mỗi lần làm là một đề với số liệu mới.',
+    cau: cau
+  });
+})();
+// Sinh cả bộ đề theo mã đề: câu thứ i dùng hạt giống riêng; nếu bộ số không hợp lệ thì thử hạt giống kế tiếp
+
+/* ---------- Lớp 10 - Đề thử thách cuối học kì I (cả 4 chương, mức độ theo ma trận Biết - Hiểu - Vận dụng) ---------- */
+(function () {
+  var L = OTL, vt = L.vt, can = L.can, ps = L.ps, td = L.toaDo, ng = L.ngoac;
+  var cau = [];
+  function lai() { throw new Error('lai'); }
+  function chonDS(r, ds) {
+    var chon = ds.map(function () { return r.tung(); });
+    if (chon.every(Boolean) || !chon.some(Boolean)) chon[r.so(0, 3)] = !chon[0];
+    return ds.map(function (y, i) { return { t: chon[i] ? y[0] : y[1], dung: chon[i], giai: y[2] }; });
+  }
+  function giaiDong(a1, b1, c1, a2, b2, c2) { var D = a1 * b2 - a2 * b1; if (D === 0) return null; return [(c1 * b2 - c2 * b1) / D, (a1 * c2 - a2 * c1) / D]; }
+  function nguyen(x) { return Math.abs(x - Math.round(x)) < 1e-9; }
+  function xap(x) { return nguyen(x) ? '=' + Math.round(x) : '\\approx' + L.soVN(Math.round(x * 100) / 100); }
+  function hieu(x, m) { return x === 0 ? '-' + m : x + '-' + m; }
+  // tam giác cạnh nguyên, diện tích nguyên: [a, b, c, S]
+  var HERON = [[13, 14, 15, 84], [14, 13, 15, 84], [15, 13, 14, 84], [6, 5, 5, 12], [8, 5, 5, 12], [10, 13, 13, 60], [17, 9, 10, 36], [20, 7, 15, 42], [21, 13, 20, 126], [20, 11, 13, 66], [10, 6, 8, 24], [13, 12, 5, 30], [15, 9, 12, 54]];
+  var GOC_TRI = { 0: [1, 1], 30: [1, 2], 45: [1, 2], 60: [1, 2], 90: [1, 1], 120: [-1, 2], 135: [-1, 1], 150: [1, 2], 180: [-1, 1] };
+
+  /* ======================= PHẦN I ======================= */
+  cau.push({ phan: 1, muc: 'Biết', chuDe: 'Mệnh đề chứa biến, phủ định mệnh đề có lượng từ',
+    kienThuc: '<ul><li>Phủ định của "$\\forall x\\in X,\\ P(x)$" là "$\\exists x\\in X,\\ \\overline{P(x)}$"; phủ định của "$\\exists x\\in X,\\ P(x)$" là "$\\forall x\\in X,\\ \\overline{P(x)}$".</li><li>Phủ định của $>$ là $\\le$; của $<$ là $\\ge$; của $=$ là $\\ne$.</li></ul>',
+    tao: function (r) {
+      var b = r.soKhac0(-6, 6), c = r.so(-5, 9), tap = r.chon(['\\mathbb R', '\\mathbb Z', '\\mathbb N']), moi = r.tung();
+      var dau = r.chon(['>', '<', '\\ge', '\\le', '=']), phu = { '>': '\\le', '<': '\\ge', '\\ge': '<', '\\le': '>', '=': '\\ne' }[dau], sai1 = { '>': '<', '<': '>', '\\ge': '\\le', '\\le': '\\ge', '=': '<' }[dau];
+      var f = L.bieuThuc([[1, 'x^2'], [b, 'x'], [c, '']]), q1 = moi ? '\\forall' : '\\exists', q2 = moi ? '\\exists' : '\\forall';
+      var M = function (q, d) { return '$' + q + ' x\\in ' + tap + ',\\ ' + f + d + ' 0$'; };
+      var p = L.tronPA(r, M(q2, phu), [M(q1, phu), M(q2, sai1), M(q2, dau)]);
+      return { loai: 'tn', de: 'Mệnh đề phủ định của mệnh đề "' + M(q1, dau) + '" là', pa: p.pa, dung: p.dung,
+        giai: 'Đổi lượng từ $' + q1 + '$ thành $' + q2 + '$ và phủ định tính chất: phủ định của "$' + dau + '$" là "$' + phu + '$". Ta được ' + M(q2, phu) + '.' };
+    } });
+
+  cau.push({ phan: 1, muc: 'Biết', chuDe: 'Tập hợp cho bởi tính chất đặc trưng',
+    kienThuc: '<ul><li>Muốn liệt kê $A=\\{x\\in\\mathbb Z\\mid \\dots\\}$: giải điều kiện để tìm khoảng của $x$, rồi lấy các số nguyên trong khoảng đó.</li><li>Chú ý dấu $<$ (không lấy đầu mút) và $\\le$ (lấy đầu mút).</li></ul>',
+    tao: function (r) {
+      var k = r.chon([2, 3]), m = r.so(-3, 3), lo = r.so(-12, -2), hi = r.so(4, 14), t1 = r.tung(), t2 = r.tung(), tap = r.tung() ? '\\mathbb Z' : '\\mathbb N';
+      var ds = [];
+      for (var x = -40; x <= 40; x++) { var v = k * x + m; if ((t1 ? v >= lo : v > lo) && (t2 ? v <= hi : v < hi) && (tap === '\\mathbb Z' || x >= 0)) ds.push(x); }
+      var n = ds.length; if (n < 2) lai();
+      var p = L.tronPA(r, '$' + n + '$', ['$' + (n + 1) + '$', '$' + (n - 1) + '$', '$' + (n + 2) + '$']);
+      var bt = L.bieuThuc([[k, 'x'], [m, '']]);
+      return { loai: 'tn', de: 'Cho tập hợp $A=\\{x\\in ' + tap + '\\mid ' + lo + (t1 ? '\\le ' : '<') + bt + (t2 ? '\\le ' : '<') + hi + '\\}$. Số phần tử của tập hợp $A$ là', pa: p.pa, dung: p.dung,
+        giai: '$' + lo + (t1 ? '\\le ' : '<') + bt + (t2 ? '\\le ' : '<') + hi + '\\Leftrightarrow ' + ps(lo - m, k) + (t1 ? '\\le ' : '<') + 'x' + (t2 ? '\\le ' : '<') + ps(hi - m, k) + '$. Với $x\\in ' + tap + '$: $A=' + L.tap(ds) + '$, có $' + n + '$ phần tử.' };
+    } });
+
+  cau.push({ phan: 1, muc: 'Hiểu', chuDe: 'Tập con',
+    kienThuc: '<ul><li>Tập có $n$ phần tử có $2^n$ tập con (kể cả $\\varnothing$ và chính nó).</li><li>Số tập $X$ thoả $B\\subset X\\subset A$ (với $B\\subset A$): $X$ phải chứa mọi phần tử của $B$, còn mỗi phần tử của $A\\setminus B$ có thể lấy hoặc không, nên có $2^{n-k}$ tập ($n$, $k$ là số phần tử của $A$, $B$).</li></ul>',
+    tao: function (r) {
+      var n = r.so(5, 7), k = r.so(1, 3), ten = r.chon([['a', 'b', 'c', 'd', 'e', 'f', 'g'], ['1', '2', '3', '4', '5', '6', '7']]), A = ten.slice(0, n), B = r.tron(A).slice(0, k).sort();
+      var dung = Math.pow(2, n - k), p = L.tronPA(r, '$' + dung + '$', ['$' + Math.pow(2, n) + '$', '$' + (dung - 1) + '$', '$' + (Math.pow(2, n - k) * 2) + '$']);
+      return { loai: 'tn', de: 'Cho $A=' + L.tap(A) + '$ và $B=' + L.tap(B) + '$. Có bao nhiêu tập hợp $X$ thoả mãn $B\\subset X\\subset A$?', pa: p.pa, dung: p.dung,
+        giai: '$X$ phải chứa ' + (k > 1 ? 'các phần tử' : 'phần tử') + ' $' + B.join(';') + '$; mỗi phần tử trong $' + (n - k) + '$ phần tử còn lại của $A$ có thể có hoặc không có trong $X$. Số tập $X$ là $2^{' + (n - k) + '}=' + dung + '$.' };
+    } });
+
+  cau.push({ phan: 1, muc: 'Biết', chuDe: 'Hệ bất phương trình bậc nhất hai ẩn',
+    kienThuc: '<ul><li>Điểm $(x_0;y_0)$ thuộc miền nghiệm của hệ khi toạ độ của nó thoả mãn <b>tất cả</b> các bất phương trình của hệ.</li><li>Chỉ cần một bất phương trình không thoả mãn là điểm đó không thuộc miền nghiệm.</li></ul>',
+    tao: function (r) {
+      var a1 = r.soKhac0(-3, 3), b1 = r.soKhac0(-3, 3), c1 = r.so(-6, 6), a2 = r.soKhac0(-3, 3), b2 = r.soKhac0(-3, 3), c2 = r.so(-6, 6);
+      var d1 = r.chon(['\\le', '>']), d2 = r.chon(['\\ge', '<']);
+      var ok = function (v, d) { return d === '\\le' ? v <= 0 : d === '>' ? v > 0 : d === '\\ge' ? v >= 0 : v < 0; };
+      var dung = null, sai = [];
+      for (var t = 0; t < 400 && (!dung || sai.length < 3); t++) {
+        var x = r.so(-4, 4), y = r.so(-4, 4), v1 = a1 * x + b1 * y + c1, v2 = a2 * x + b2 * y + c2, k = x + ';' + y;
+        if (v1 === 0 || v2 === 0 || (dung && dung.k === k) || sai.some(function (s) { return s.k === k; })) continue;
+        var o1 = ok(v1, d1), o2 = ok(v2, d2);
+        if (o1 && o2) { if (!dung) dung = { x: x, y: y, v1: v1, v2: v2, k: k }; }
+        else if (sai.length < 3 && (o1 || o2 || sai.length === 2)) sai.push({ x: x, y: y, v1: v1, v2: v2, k: k, o1: o1 });
+      }
+      if (!dung || sai.length < 3) lai();
+      var ds = r.tron([dung].concat(sai)), tenD = ['M', 'N', 'P', 'Q'], j = ds.indexOf(dung);
+      var e1 = L.bieuThuc([[a1, 'x'], [b1, 'y'], [c1, '']]), e2 = L.bieuThuc([[a2, 'x'], [b2, 'y'], [c2, '']]);
+      return { loai: 'tn', de: 'Điểm nào sau đây thuộc miền nghiệm của hệ bất phương trình $\\begin{cases}' + e1 + d1 + ' 0\\\\' + e2 + d2 + ' 0\\end{cases}$?',
+        pa: ds.map(function (d, i) { return '$' + tenD[i] + td(d.x, d.y) + '$'; }), dung: j,
+        giai: ds.map(function (d, i) { return '$' + tenD[i] + td(d.x, d.y) + '$: vế trái lần lượt bằng $' + d.v1 + '$ và $' + d.v2 + '$' + (i === j ? ', <b>thoả mãn cả hai</b>' : ', không thoả mãn ' + (ok(d.v1, d1) ? 'bất phương trình thứ hai' : 'bất phương trình thứ nhất')); }).join('<br>') + '<br>Vậy chọn $' + tenD[j] + '$.' };
+    } });
+
+  cau.push({ phan: 1, muc: 'Hiểu', chuDe: 'Biểu diễn miền nghiệm của bất phương trình bậc nhất hai ẩn',
+    kienThuc: '<ul><li>Đường thẳng đi qua $(p;0)$ và $(0;q)$ có phương trình $\\dfrac xp+\\dfrac yq=1$.</li><li>Để biết nửa mặt phẳng nào là miền nghiệm: thay toạ độ một điểm không nằm trên bờ (thường là $O(0;0)$) vào bất phương trình.</li><li>Bờ là đường liền: có dấu $\\le,\\ge$; bờ là đường nét đứt: dấu $<,>$.</li></ul>',
+    tao: function (r) {
+      var p = r.soKhac0(-4, 4), q = r.soKhac0(-4, 4); if (Math.abs(p) < 2 && Math.abs(q) < 2) lai();
+      // đường thẳng qx + py = pq
+      var g = L.ucln(L.ucln(q, p), p * q), A = q / g, B = p / g, C = p * q / g; if (A < 0) { A = -A; B = -B; C = -C; }
+      var chuaO = r.tung(), net = r.tung(); // miền nghiệm chứa O hay không; bờ liền hay đứt
+      var dauO = 0 < C ? (net ? '\\le' : '<') : (net ? '\\ge' : '>'); // dấu để O thoả: A*0+B*0 = 0 so với C
+      var dau = chuaO ? dauO : { '\\le': '\\ge', '<': '>', '\\ge': '\\le', '>': '<' }[dauO];
+      var nguoc = { '\\le': '\\ge', '<': '>', '\\ge': '\\le', '>': '<' }[dau], doiNet = { '\\le': '<', '<': '\\le', '\\ge': '>', '>': '\\ge' }[dau];
+      var e = L.bieuThuc([[A, 'x'], [B, 'y']]), e2 = L.bieuThuc([[B, 'x'], [A, 'y']]);
+      if (e === e2) lai();
+      var pa = L.tronPA(r, '$' + e + dau + ' ' + C + '$', ['$' + e + nguoc + ' ' + C + '$', '$' + e + doiNet + ' ' + C + '$', '$' + e2 + dau + ' ' + C + '$']);
+      // hình
+      var o = 26, W = 12 * o, X = function (x) { return (x + 6) * o; }, Y = function (y) { return (6 - y) * o; };
+      var s = '<svg viewBox="0 0 ' + W + ' ' + W + '" class="hinh hinh-nho" style="max-width:300px" role="img" aria-label="Miền nghiệm của một bất phương trình">';
+      for (var i = 0; i <= 12; i++) s += '<line x1="' + i * o + '" y1="0" x2="' + i * o + '" y2="' + W + '" stroke="#eceff5"/><line x1="0" y1="' + i * o + '" x2="' + W + '" y2="' + i * o + '" stroke="#eceff5"/>';
+      // tô phần KHÔNG là miền nghiệm (bị gạch bỏ)
+      var pts = [[-6, -6], [6, -6], [6, 6], [-6, 6]], bo = [];
+      var ngoai = function (x, y) { var v = A * x + B * y - C; var thoa = dau === '\\le' ? v <= 0 : dau === '<' ? v < 0 : dau === '\\ge' ? v >= 0 : v > 0; return !thoa; };
+      for (var k2 = 0; k2 < 4; k2++) {
+        var P1 = pts[k2], P2 = pts[(k2 + 1) % 4], f1 = A * P1[0] + B * P1[1] - C, f2 = A * P2[0] + B * P2[1] - C;
+        if (ngoai(P1[0], P1[1])) bo.push(P1);
+        if (f1 * f2 < 0) { var t = f1 / (f1 - f2); bo.push([P1[0] + t * (P2[0] - P1[0]), P1[1] + t * (P2[1] - P1[1])]); }
+      }
+      s += '<defs><pattern id="gach5" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" fill="#e6e9f2"/><line x1="0" y1="0" x2="0" y2="8" stroke="#9aa3b8" stroke-width="2.5"/></pattern></defs>';
+      s += '<polygon points="' + bo.map(function (p2) { return X(p2[0]).toFixed(1) + ',' + Y(p2[1]).toFixed(1); }).join(' ') + '" fill="url(#gach5)" opacity=".9"/>';
+      s += '<line x1="0" y1="' + Y(0) + '" x2="' + W + '" y2="' + Y(0) + '" stroke="#333" stroke-width="1.4"/><line x1="' + X(0) + '" y1="0" x2="' + X(0) + '" y2="' + W + '" stroke="#333" stroke-width="1.4"/>' +
+        '<text x="' + (W - 10) + '" y="' + (Y(0) - 6) + '" font-size="15" ' + L.CHU + '>x</text><text x="' + (X(0) + 6) + '" y="14" font-size="15" ' + L.CHU + '>y</text>' + L.chu(X(0) - 9, Y(0) + 16, 'O', 14);
+      var l1 = [-6, (C - A * -6) / B], l2 = [6, (C - A * 6) / B];
+      s += '<line x1="' + X(l1[0]).toFixed(1) + '" y1="' + Y(l1[1]).toFixed(1) + '" x2="' + X(l2[0]).toFixed(1) + '" y2="' + Y(l2[1]).toFixed(1) + '" stroke="#1f2a5a" stroke-width="2.6"' + (net ? '' : ' stroke-dasharray="7 5"') + '/>';
+      s += L.chu(X(p) + (p > 0 ? 8 : -8), Y(0) + 17, String(p), 14, 'font-style="normal"') + L.chu(X(0) + (q > 0 ? -12 : -12), Y(q) + 5, String(q), 14, 'font-style="normal"') + '</svg>';
+      return { loai: 'tn', de: 'Phần không bị gạch (' + (net ? 'kể cả bờ là đường liền' : 'không kể bờ là đường nét đứt') + ') trong hình sau là miền nghiệm của bất phương trình nào?', hinh: s, pa: pa.pa, dung: pa.dung,
+        giai: 'Bờ đi qua $(' + p + ';0)$ và $(0;' + q + ')$: $\\dfrac x{' + p + '}+\\dfrac y{' + q + '}=1\\Leftrightarrow ' + e + '=' + C + '$. Bờ ' + (net ? 'liền nên có dấu bằng' : 'nét đứt nên không có dấu bằng') + '. Điểm $O(0;0)$ ' + (chuaO ? '' : 'không ') + 'thuộc miền nghiệm (thay $x=0,\\ y=0$ vào vế trái được $0$, so với $' + C + '$) nên chọn $' + e + dau + ' ' + C + '$.' };
+    } });
+
+  cau.push({ phan: 1, muc: 'Hiểu', chuDe: 'Giá trị lượng giác của góc từ $0^\\circ$ đến $180^\\circ$',
+    kienThuc: '<ul><li>$\\sin^2\\alpha+\\cos^2\\alpha=1$, $\\tan\\alpha=\\dfrac{\\sin\\alpha}{\\cos\\alpha}$.</li><li>Với $0^\\circ\\le\\alpha\\le180^\\circ$: $\\sin\\alpha\\ge0$. Góc tù ($90^\\circ<\\alpha<180^\\circ$) thì $\\cos\\alpha<0$, $\\tan\\alpha<0$.</li></ul>',
+    tao: function (r) {
+      var t = r.chon([[3, 4, 5], [5, 12, 13], [8, 15, 17], [7, 24, 25], [20, 21, 29]]), sw = r.tung(), a = sw ? t[1] : t[0], b = sw ? t[0] : t[1], c = t[2], loai = r.so(0, 2);
+      var de, dung, sai, giai;
+      if (loai === 0) { de = '$\\sin\\alpha=' + ps(a, c) + '$. Giá trị của $\\cos\\alpha$ bằng'; dung = ps(-b, c); sai = [ps(b, c), ps(-a, c), ps(-b, a)]; giai = '$\\cos^2\\alpha=1-\\sin^2\\alpha=1-' + ps(a * a, c * c) + '=' + ps(b * b, c * c) + '$. Vì $\\alpha$ tù nên $\\cos\\alpha<0$: $\\cos\\alpha=' + dung + '$.'; }
+      else if (loai === 1) { de = '$\\cos\\alpha=' + ps(-b, c) + '$. Giá trị của $\\sin\\alpha$ bằng'; dung = ps(a, c); sai = [ps(-a, c), ps(b, c), ps(a, b)]; giai = '$\\sin^2\\alpha=1-\\cos^2\\alpha=' + ps(a * a, c * c) + '$. Vì $\\sin\\alpha>0$ nên $\\sin\\alpha=' + dung + '$.'; }
+      else { de = '$\\sin\\alpha=' + ps(a, c) + '$. Giá trị của $\\tan\\alpha$ bằng'; dung = ps(-a, b); sai = [ps(a, b), ps(-b, a), ps(-a, c)]; giai = '$\\cos\\alpha=-\\sqrt{1-' + ps(a * a, c * c) + '}=' + ps(-b, c) + '$ (góc tù), $\\tan\\alpha=\\dfrac{\\sin\\alpha}{\\cos\\alpha}=' + dung + '$.'; }
+      var p = L.tronPA(r, '$' + dung + '$', sai.map(function (x) { return '$' + x + '$'; }));
+      return { loai: 'tn', de: 'Cho góc $\\alpha$ thoả mãn $90^\\circ<\\alpha<180^\\circ$ và ' + de, pa: p.pa, dung: p.dung, giai: giai };
+    } });
+
+  cau.push({ phan: 1, muc: 'Biết', chuDe: 'Giá trị lượng giác của các góc đặc biệt',
+    kienThuc: '<ul><li>Bảng: $\\sin30^\\circ=\\cos60^\\circ=\\dfrac12$; $\\sin45^\\circ=\\cos45^\\circ=\\dfrac{\\sqrt2}2$; $\\sin60^\\circ=\\cos30^\\circ=\\dfrac{\\sqrt3}2$; $\\tan45^\\circ=1$.</li><li>Góc bù nhau: $\\sin(180^\\circ-\\alpha)=\\sin\\alpha$, $\\cos(180^\\circ-\\alpha)=-\\cos\\alpha$, $\\tan(180^\\circ-\\alpha)=-\\tan\\alpha$.</li></ul>',
+    tao: function (r) {
+      var KHO = [['\\cos60^\\circ', 1, 2, 1, 2], ['\\sin30^\\circ', 1, 2, 1, 2], ['\\sin^2 45^\\circ', 1, 2, 1, 2], ['\\cos^2 30^\\circ', 3, 4, 3, 4], ['\\sin^2 60^\\circ', 3, 4, 3, 4], ['\\tan45^\\circ', 1, 1, 1, 1],
+        ['\\tan135^\\circ', -1, 1, 1, 1], ['\\cos120^\\circ', -1, 2, 1, 2], ['\\sin150^\\circ', 1, 2, 1, 2], ['\\cos180^\\circ', -1, 1, 1, 1], ['\\sin90^\\circ', 1, 1, 1, 1], ['\\cos^2 135^\\circ', 1, 2, 1, 2], ['\\cos150^\\circ\\cdot\\cos30^\\circ', -3, 4, 3, 4]];
+      var ch = r.tron(KHO).slice(0, 3), he = [r.so(1, 3), r.so(1, 3), r.so(1, 2)], tu = 0, tuSai = 0, mau = 4;
+      ch.forEach(function (x, i) { tu += he[i] * x[1] * mau / x[2]; tuSai += he[i] * x[3] * mau / x[4]; });
+      var dung = ps(tu, mau), sai = L.khacNhau([ps(tuSai, mau), ps(tu + 2, mau), ps(tu - 2, mau), ps(-tu, mau), ps(tu + 4, mau)].filter(function (x) { return x !== dung; }), 3);
+      var bt = ch.map(function (x, i) { return (he[i] > 1 ? he[i] : '') + x[0]; }).join('+');
+      var p = L.tronPA(r, '$' + dung + '$', sai.map(function (x) { return '$' + x + '$'; }));
+      return { loai: 'tn', de: 'Giá trị của biểu thức $P=' + bt + '$ bằng', pa: p.pa, dung: p.dung,
+        giai: '$P=' + ch.map(function (x, i) { return (he[i] > 1 ? he[i] + '\\cdot ' : '') + '\\left(' + ps(x[1], x[2]) + '\\right)'; }).join('+') + '=' + dung + '$.' };
+    } });
+
+  cau.push({ phan: 1, muc: 'Hiểu', chuDe: 'Diện tích tam giác, bán kính đường tròn nội tiếp, ngoại tiếp',
+    kienThuc: '<ul><li>Công thức Heron: $S=\\sqrt{p(p-a)(p-b)(p-c)}$ với $p=\\dfrac{a+b+c}{2}$ (nửa chu vi).</li><li>$S=pr$ $\\Rightarrow r=\\dfrac Sp$; $S=\\dfrac{abc}{4R}$ $\\Rightarrow R=\\dfrac{abc}{4S}$.</li></ul>',
+    tao: function (r) {
+      var t = r.chon(HERON), k = r.chon([1, 1, 2]), a = t[0] * k, b = t[1] * k, c = t[2] * k, S = t[3] * k * k, p2 = a + b + c, hoi = r.so(0, 2);
+      if (p2 % 2) lai();
+      var p = p2 / 2, de, dung, sai, giai = '$p=\\dfrac{' + a + '+' + b + '+' + c + '}{2}=' + p + '$, $S=\\sqrt{' + p + '\\cdot ' + (p - a) + '\\cdot ' + (p - b) + '\\cdot ' + (p - c) + '}=' + S + '$';
+      if (hoi === 0) { de = 'Diện tích tam giác $ABC$ bằng'; dung = String(S); sai = [String(2 * S), ps(S, 2), String(p * 2)]; giai += '.'; }
+      else if (hoi === 1) { de = 'Bán kính đường tròn nội tiếp tam giác $ABC$ bằng'; dung = ps(S, p); sai = [ps(2 * S, p), ps(S, 2 * p), ps(a * b * c, 4 * S)]; giai += '; $r=\\dfrac Sp=\\dfrac{' + S + '}{' + p + '}=' + dung + '$.'; }
+      else { de = 'Bán kính đường tròn ngoại tiếp tam giác $ABC$ bằng'; dung = ps(a * b * c, 4 * S); sai = [ps(a * b * c, 2 * S), ps(S, p), ps(a * b * c, S)]; giai += '; $R=\\dfrac{abc}{4S}=\\dfrac{' + a + '\\cdot ' + b + '\\cdot ' + c + '}{4\\cdot ' + S + '}=' + dung + '$.'; }
+      var pa = L.tronPA(r, '$' + dung + '$', L.khacNhau(sai.filter(function (x) { return x !== dung; }).concat([ps(S, 3), String(S + p)]), 3).map(function (x) { return '$' + x + '$'; }));
+      return { loai: 'tn', de: 'Cho tam giác $ABC$ có $BC=' + a + '$, $CA=' + b + '$, $AB=' + c + '$. ' + de, pa: pa.pa, dung: pa.dung, giai: giai };
+    } });
+
+  cau.push({ phan: 1, muc: 'Biết', chuDe: 'Hai vectơ bằng nhau',
+    kienThuc: '<ul><li>Hai vectơ bằng nhau khi chúng <b>cùng hướng</b> và <b>cùng độ dài</b>.</li><li>Lục giác đều $ABCDEF$ tâm $O$ được chia thành 6 tam giác đều bằng nhau; các tứ giác như $OABC$, $OCDE$ là hình thoi.</li></ul>',
+    tao: function (r) {
+      var ten = ['A', 'B', 'C', 'D', 'E', 'F', 'O'], P = {};
+      for (var i = 0; i < 6; i++) P[ten[i]] = [Math.cos(i * Math.PI / 3), Math.sin(i * Math.PI / 3)]; P.O = [0, 0];
+      var muc = r.tung() ? ['O', ten[r.so(0, 5)]] : (function () { var j = r.so(0, 5); return [ten[j], ten[(j + 1) % 6]]; })();
+      if (r.tung()) muc = [muc[1], muc[0]];
+      var d = [P[muc[1]][0] - P[muc[0]][0], P[muc[1]][1] - P[muc[0]][1]], bang = [];
+      ten.forEach(function (u) { ten.forEach(function (v) { if (u === v || (u === muc[0] && v === muc[1])) return; if (Math.abs(P[v][0] - P[u][0] - d[0]) < 1e-9 && Math.abs(P[v][1] - P[u][1] - d[1]) < 1e-9) bang.push(u + v); }); });
+      var n = bang.length, pa = L.tronPA(r, '$' + n + '$', ['$' + (n - 1) + '$', '$' + (n + 1) + '$', '$' + (2 * n) + '$']);
+      var s = '<svg viewBox="-130 -118 260 236" class="hinh hinh-nho" style="max-width:240px" role="img" aria-label="Lục giác đều ABCDEF tâm O">', R2 = 95;
+      var Q = function (t) { return [P[t][0] * R2, -P[t][1] * R2]; };
+      s += '<polygon points="' + ten.slice(0, 6).map(function (t) { return Q(t).map(function (x) { return x.toFixed(1); }).join(','); }).join(' ') + '" ' + L.NET + '/>';
+      ['A', 'B', 'C'].forEach(function (t, i) { var a = Q(t), b = Q(ten[i + 3]); s += '<line x1="' + a[0].toFixed(1) + '" y1="' + a[1].toFixed(1) + '" x2="' + b[0].toFixed(1) + '" y2="' + b[1].toFixed(1) + '" stroke="#8a93ad" stroke-width="1.4"/>'; });
+      ten.forEach(function (t) { var a = Q(t), l = t === 'O' ? [12, -8] : [a[0] * 0.2, a[1] * 0.2 + 6]; s += L.cham(a[0], a[1]) + L.chu(a[0] + l[0], a[1] + l[1], t, 18); });
+      s += '</svg>';
+      return { loai: 'tn', de: 'Cho lục giác đều $ABCDEF$ tâm $O$. Số vectơ khác $\\vec 0$, bằng vectơ $' + vt(muc.join('')) + '$ (không kể chính nó), có điểm đầu và điểm cuối là các điểm trong 7 điểm $A,B,C,D,E,F,O$ là', hinh: s, pa: pa.pa, dung: pa.dung,
+        giai: 'Các vectơ cùng hướng và cùng độ dài với $' + vt(muc.join('')) + '$: ' + bang.map(function (x) { return '$' + vt(x) + '$'; }).join(', ') + '. Có $' + n + '$ vectơ.' };
+    } });
+
+  cau.push({ phan: 1, muc: 'Hiểu', chuDe: 'Góc giữa hai vectơ (toạ độ)',
+    kienThuc: '<ul><li>$\\cos(\\vec a,\\vec b)=\\dfrac{\\vec a\\cdot\\vec b}{|\\vec a|\\cdot|\\vec b|}=\\dfrac{x_1x_2+y_1y_2}{\\sqrt{x_1^2+y_1^2}\\cdot\\sqrt{x_2^2+y_2^2}}$.</li><li>Góc giữa hai vectơ nằm trong $[0^\\circ;180^\\circ]$; $\\cos<0$ thì góc tù.</li></ul>',
+    tao: function (r) {
+      var G = [[30, Math.sqrt(3) / 2], [45, Math.SQRT1_2], [60, 0.5], [90, 0], [120, -0.5], [135, -Math.SQRT1_2], [150, -Math.sqrt(3) / 2]], x1, y1, x2, y2, g = null;
+      for (var t = 0; t < 2000 && !g; t++) {
+        x1 = r.soKhac0(-5, 5); y1 = r.so(-5, 5); x2 = r.so(-5, 5); y2 = r.soKhac0(-5, 5);
+        var c = (x1 * x2 + y1 * y2) / Math.sqrt((x1 * x1 + y1 * y1) * (x2 * x2 + y2 * y2));
+        G.forEach(function (q) { if (Math.abs(c - q[1]) < 1e-9 && q[0] !== 90) g = q[0]; });
+        if (g && x1 * y2 - x2 * y1 === 0) g = null;
+      }
+      if (!g) lai();
+      var d = x1 * x2 + y1 * y2, n1 = x1 * x1 + y1 * y1, n2 = x2 * x2 + y2 * y2;
+      var sai = L.khacNhau([180 - g, g === 45 || g === 135 ? 90 : g < 90 ? g + 15 : g - 15, g < 90 ? 90 - g : g - 90 === g ? 30 : g - 90, 60, 120].filter(function (x) { return x !== g && x > 0 && x < 180; }).map(String), 3);
+      var p = L.tronPA(r, '$' + g + '^\\circ$', sai.map(function (x) { return '$' + x + '^\\circ$'; }));
+      return { loai: 'tn', de: 'Trong mặt phẳng toạ độ $Oxy$, cho $\\vec a=' + td(x1, y1) + '$ và $\\vec b=' + td(x2, y2) + '$. Góc giữa hai vectơ $\\vec a$ và $\\vec b$ bằng', pa: p.pa, dung: p.dung,
+        giai: '$\\cos(\\vec a,\\vec b)=\\dfrac{' + x1 + '\\cdot ' + ng(x2) + '+' + ng(y1) + '\\cdot ' + ng(y2) + '}{\\sqrt{' + n1 + '}\\cdot\\sqrt{' + n2 + '}}=\\dfrac{' + d + '}{' + can(1, 1, n1 * n2) + '}=' + ({ 30: '\\dfrac{\\sqrt3}{2}', 45: '\\dfrac{\\sqrt2}{2}', 60: '\\dfrac12', 120: '-\\dfrac12', 135: '-\\dfrac{\\sqrt2}{2}', 150: '-\\dfrac{\\sqrt3}{2}' })[g] + '$ $\\Rightarrow(\\vec a,\\vec b)=' + g + '^\\circ$.' };
+    } });
+
+  cau.push({ phan: 1, muc: 'Hiểu', chuDe: 'Tích vô hướng trong tam giác đều (góc giữa hai vectơ)',
+    kienThuc: '<ul><li>Góc giữa hai vectơ được xác định khi đưa chúng về <b>chung điểm đầu</b>.</li><li>Ví dụ trong tam giác đều: $(' + vt('AB') + ',' + vt('AC') + ')=60^\\circ$ nhưng $(' + vt('AB') + ',' + vt('BC') + ')=120^\\circ$ (vì $' + vt('BC') + '$ phải dời về điểm đầu $A$).</li></ul>',
+    tao: function (r) {
+      var k = r.so(2, 6), P = { A: [0, 0], B: [1, 0], C: [0.5, Math.sqrt(3) / 2] }, canh = ['AB', 'BA', 'AC', 'CA', 'BC', 'CB'];
+      var u = r.chon(canh), v = r.chon(canh.filter(function (x) { return x !== u && x !== u.split('').reverse().join(''); }));
+      var V = function (s) { return [P[s[1]][0] - P[s[0]][0], P[s[1]][1] - P[s[0]][1]]; }, a = V(u), b = V(v), d = a[0] * b[0] + a[1] * b[1]; // ±1/2
+      var goc = d > 0 ? 60 : 120, dung = ps(d > 0 ? k * k : -k * k, 2);
+      var p = L.tronPA(r, '$' + dung + '$', [ps(d > 0 ? -k * k : k * k, 2), String(k * k), can(k * k, 2, 3)].map(function (x) { return '$' + x + '$'; }));
+      return { loai: 'tn', de: 'Cho tam giác đều $ABC$ có cạnh bằng $' + k + '$. Tích vô hướng $' + vt(u) + '\\cdot' + vt(v) + '$ bằng', pa: p.pa, dung: p.dung,
+        giai: 'Đưa hai vectơ về chung điểm đầu thì góc giữa $' + vt(u) + '$ và $' + vt(v) + '$ là $' + goc + '^\\circ$. $' + vt(u) + '\\cdot' + vt(v) + '=' + k + '\\cdot ' + k + '\\cdot\\cos' + goc + '^\\circ=' + dung + '$.' };
+    } });
+
+  cau.push({ phan: 1, muc: 'Vận dụng', chuDe: 'Điều kiện hai vectơ vuông góc, cùng phương',
+    kienThuc: '<ul><li>$\\vec a\\perp\\vec b\\Leftrightarrow x_1x_2+y_1y_2=0$.</li><li>$\\vec a=(x_1;y_1)$ cùng phương $\\vec b=(x_2;y_2)$ ($\\vec b\\ne\\vec 0$) $\\Leftrightarrow x_1y_2-x_2y_1=0$.</li></ul>',
+    tao: function (r) {
+      var p = r.so(-4, 4), q = r.soKhac0(-4, 4), x2 = r.soKhac0(-3, 3), y2 = r.soKhac0(-3, 3), vuong = r.tung();
+      // a = (m + p; q), b = (x2; y2)
+      var mV = ps(-q * y2 - p * x2, x2), mC = ps(q * x2 - p * y2, y2), dung = vuong ? mV : mC, khac = vuong ? mC : mV;
+      var sai = L.khacNhau([khac, ps(q * y2 - p * x2, x2), ps(-q * y2 + p * x2, x2), ps(-(q * x2 - p * y2), y2), ps(q * x2 + p * y2, y2)].filter(function (x) { return x !== dung; }), 3);
+      var pa = L.tronPA(r, '$m=' + dung + '$', sai.map(function (x) { return '$m=' + x + '$'; }));
+      var ax = p === 0 ? 'm' : 'm' + (p > 0 ? '+' : '') + p;
+      return { loai: 'tn', de: 'Trong mặt phẳng toạ độ $Oxy$, cho $\\vec a=(' + ax + ';' + q + ')$ và $\\vec b=' + td(x2, y2) + '$. Giá trị của $m$ để $\\vec a$ ' + (vuong ? 'vuông góc với' : 'cùng phương với') + ' $\\vec b$ là', pa: pa.pa, dung: pa.dung,
+        giai: vuong ? '$\\vec a\\perp\\vec b\\Leftrightarrow (' + ax + ')\\cdot ' + ng(x2) + '+' + ng(q) + '\\cdot ' + ng(y2) + '=0\\Leftrightarrow m=' + dung + '$.'
+          : '$\\vec a$ cùng phương $\\vec b\\Leftrightarrow (' + ax + ')\\cdot ' + ng(y2) + '-' + ng(x2) + '\\cdot ' + ng(q) + '=0\\Leftrightarrow m=' + dung + '$.' };
+    } });
+
+  /* ======================= PHẦN II ======================= */
+  cau.push({ phan: 2, muc: 'Biết → Vận dụng', chuDe: 'Tập hợp: giao, hiệu, phần bù, đếm phần tử nguyên',
+    kienThuc: '<ul><li>$C_{\\mathbb R}A=\\mathbb R\\setminus A$. Ví dụ $C_{\\mathbb R}[a;b]=(-\\infty;a)\\cup(b;+\\infty)$: đầu mút nào $A$ lấy thì phần bù không lấy.</li><li>Đếm số nguyên trong $(m;n]$ ($m,n$ nguyên): có $n-m$ số.</li></ul>',
+    tao: function (r) {
+      var a = r.so(-9, -1), c = a + r.so(2, 6), b = c + r.so(2, 7), D = L.doanSo, nB = b - c;
+      var y = chonDS(r, [
+        ['$A\\cap B=(' + c + ';' + b + ']$', '$A\\cap B=[' + c + ';' + b + ']$', '$A\\cap B=(' + c + ';' + b + ']$ (phần chung; $B$ không lấy $' + c + '$, $A$ lấy $' + b + '$).'],
+        ['$C_{\\mathbb R}A=(-\\infty;' + a + ')\\cup(' + b + ';+\\infty)$', '$C_{\\mathbb R}A=(-\\infty;' + a + ']\\cup[' + b + ';+\\infty)$', '$A=[' + a + ';' + b + ']$ lấy cả hai đầu mút nên $C_{\\mathbb R}A=(-\\infty;' + a + ')\\cup(' + b + ';+\\infty)$.'],
+        ['$A\\setminus B=[' + a + ';' + c + ']$', '$A\\setminus B=[' + a + ';' + c + ')$', '$A\\setminus B$ gồm các số thuộc $A$ và không lớn hơn $' + c + '$: $[' + a + ';' + c + ']$.'],
+        ['Tập $A\\cap B$ có đúng $' + nB + '$ phần tử là số nguyên.', 'Tập $A\\cap B$ có đúng $' + (nB + 1) + '$ phần tử là số nguyên.', 'Các số nguyên thuộc $(' + c + ';' + b + ']$ là $' + (c + 1) + ',\\dots,' + b + '$: có $' + nB + '$ số.']
+      ]);
+      return { loai: 'ds', de: 'Cho hai tập hợp $A=[' + a + ';' + b + ']$ và $B=(' + c + ';+\\infty)$. Xét tính Đúng – Sai trong các khẳng định sau.', y: y };
+    } });
+
+  cau.push({ phan: 2, muc: 'Biết → Vận dụng', chuDe: 'Hệ bất phương trình bậc nhất hai ẩn trong thực tế',
+    kienThuc: '<ul><li>Gọi ẩn, đặt điều kiện $x\\ge0$, $y\\ge0$; mỗi giới hạn (diện tích, tiền vốn, thời gian...) cho một bất phương trình.</li><li>Miền nghiệm là đa giác; giá trị lớn nhất của $F=ax+by$ đạt tại một đỉnh: tính $F$ tại các đỉnh rồi so sánh.</li></ul>',
+    tao: function (r) {
+      var x0 = r.so(2, 8), y0 = r.so(2, 8), c1 = r.so(2, 6), c2 = r.so(1, 5); if (c1 === c2) lai();
+      var N = x0 + y0, M = c1 * x0 + c2 * y0, p = r.so(3, 9), q = r.so(3, 9);
+      // đỉnh: O, (N,0) hoặc (M/c1,0), (x0,y0), (0, ...)
+      var X = Math.min(N, M / c1), Yy = Math.min(N, M / c2), dinh = [[0, 0], [X, 0], [x0, y0], [0, Yy]], F = dinh.map(function (d) { return p * d[0] + q * d[1]; });
+      var fMax = Math.max.apply(null, F); if (!nguyen(fMax) || F.filter(function (f) { return Math.abs(f - fMax) < 1e-9; }).length > 1) lai();
+      if ((M / c1 > N) === (M / c2 > N) || Math.abs(F[2] - fMax) > 1e-9) lai();
+      var fSai = F.filter(function (f) { return Math.abs(f - fMax) > 1e-9 && f > 0; }).sort(function (a, b) { return b - a; })[0];
+      var tx = r.so(0, N), ty = r.so(0, N), thoa = tx + ty <= N && c1 * tx + c2 * ty <= M;
+      var vSai = [y0, x0], dinhDung = '(' + x0 + ';' + y0 + ')', dinhSai = '(' + vSai[0] + ';' + vSai[1] + ')'; if (x0 === y0) dinhSai = '(' + (x0 + 1) + ';' + (y0 - 1) + ')';
+      var y = chonDS(r, [
+        ['Cặp số $' + td(tx, ty) + '$ ' + (thoa ? '' : 'không ') + 'thoả mãn các điều kiện của bài toán.', 'Cặp số $' + td(tx, ty) + '$ ' + (thoa ? 'không ' : '') + 'thoả mãn các điều kiện của bài toán.', 'Kiểm tra: $' + tx + '+' + ty + '=' + (tx + ty) + (tx + ty <= N ? '\\le' : '>') + N + '$; $' + c1 + '\\cdot ' + tx + '+' + c2 + '\\cdot ' + ty + '=' + (c1 * tx + c2 * ty) + (c1 * tx + c2 * ty <= M ? '\\le' : '>') + M + '$ nên cặp số ' + (thoa ? '' : 'không ') + 'thoả mãn.'],
+        ['Các điều kiện là $x+y\\le ' + N + '$, $' + c1 + 'x+' + c2 + 'y\\le ' + M + '$, $x\\ge0$, $y\\ge0$.', 'Các điều kiện là $x+y\\ge ' + N + '$, $' + c1 + 'x+' + c2 + 'y\\le ' + M + '$, $x\\ge0$, $y\\ge0$.', 'Diện tích không quá $' + N + '$ sào: $x+y\\le ' + N + '$; tiền vốn không quá $' + M + '$ triệu: $' + c1 + 'x+' + c2 + 'y\\le ' + M + '$.'],
+        ['Miền nghiệm của hệ là một tứ giác có một đỉnh là điểm $' + dinhDung + '$.', 'Miền nghiệm của hệ là một tứ giác có một đỉnh là điểm $' + dinhSai + '$.', 'Đỉnh là giao điểm của $x+y=' + N + '$ và $' + c1 + 'x+' + c2 + 'y=' + M + '$: giải hệ được $' + dinhDung + '$. Các đỉnh khác: $O(0;0)$, $\\left(' + (X === N ? String(N) : ps(M, c1)) + ';0\\right)$, $\\left(0;' + (Yy === N ? N : ps(M, c2)) + '\\right)$.'],
+        ['Lợi nhuận lớn nhất bác có thể thu được là $' + fMax + '$ triệu đồng.', 'Lợi nhuận lớn nhất bác có thể thu được là $' + (fSai && nguyen(fSai) ? fSai : fMax + p) + '$ triệu đồng.', '$F=' + p + 'x+' + q + 'y$. Tại các đỉnh: ' + dinh.map(function (d, i) { return '$F' + td(nguyen(d[0]) ? d[0] : ps(Math.round(d[0] * c1), c1), nguyen(d[1]) ? d[1] : ps(Math.round(d[1] * c2), c2)) + '=' + (nguyen(F[i]) ? F[i] : L.soVN(F[i], 2)) + '$'; }).join(', ') + '. Lớn nhất là $' + fMax + '$.']
+      ]);
+      return { loai: 'ds', de: 'Bác Ba có $' + N + '$ sào đất để trồng cà chua và đậu. Trồng mỗi sào cà chua cần $' + c1 + '$ triệu đồng tiền vốn và lãi $' + p + '$ triệu đồng; mỗi sào đậu cần $' + c2 + '$ triệu đồng tiền vốn và lãi $' + q + '$ triệu đồng. Bác có không quá $' + M + '$ triệu đồng tiền vốn. Gọi $x$, $y$ lần lượt là số sào trồng cà chua và đậu. Xét tính Đúng – Sai trong các khẳng định sau.', y: y };
+    } });
+
+  cau.push({ phan: 2, muc: 'Biết → Vận dụng', chuDe: 'Hệ thức lượng: côsin, Heron, đường cao, bán kính',
+    kienThuc: '<ul><li>$\\cos A=\\dfrac{b^2+c^2-a^2}{2bc}$.</li><li>Heron: $S=\\sqrt{p(p-a)(p-b)(p-c)}$; đường cao $h_a=\\dfrac{2S}{a}$.</li><li>$R=\\dfrac{abc}{4S}$, $r=\\dfrac Sp$.</li></ul>',
+    tao: function (r) {
+      var t = r.chon(HERON), a = t[0], b = t[1], c = t[2], S = t[3], p = (a + b + c) / 2; if (!nguyen(p)) lai();
+      var tu = b * b + c * c - a * a, mau = 2 * b * c; if (tu === 0) lai();
+      var y = chonDS(r, [
+        ['$\\cos A=' + ps(tu, mau) + '$', '$\\cos A=' + ps(-tu, mau) + '$', '$\\cos A=\\dfrac{' + b + '^2+' + c + '^2-' + a + '^2}{2\\cdot ' + b + '\\cdot ' + c + '}=' + ps(tu, mau) + '$.'],
+        ['Diện tích tam giác $ABC$ bằng $' + S + '$.', 'Diện tích tam giác $ABC$ bằng $' + (2 * S) + '$.', '$p=' + p + '$, $S=\\sqrt{' + p + '\\cdot ' + (p - a) + '\\cdot ' + (p - b) + '\\cdot ' + (p - c) + '}=' + S + '$.'],
+        ['Đường cao kẻ từ $A$ có độ dài bằng $' + ps(2 * S, a) + '$.', 'Đường cao kẻ từ $A$ có độ dài bằng $' + ps(S, a) + '$.', '$h_a=\\dfrac{2S}{BC}=\\dfrac{2\\cdot ' + S + '}{' + a + '}=' + ps(2 * S, a) + '$.'],
+        ['Bán kính đường tròn ngoại tiếp tam giác bằng $' + ps(a * b * c, 4 * S) + '$.', 'Bán kính đường tròn ngoại tiếp tam giác bằng $' + ps(a * b * c, 2 * S) + '$.', '$R=\\dfrac{abc}{4S}=\\dfrac{' + a + '\\cdot ' + b + '\\cdot ' + c + '}{4\\cdot ' + S + '}=' + ps(a * b * c, 4 * S) + '$.']
+      ]);
+      return { loai: 'ds', de: 'Cho tam giác $ABC$ có $BC=' + a + '$, $CA=' + b + '$, $AB=' + c + '$. Xét tính Đúng – Sai trong các khẳng định sau.', y: y };
+    } });
+
+  cau.push({ phan: 2, muc: 'Biết → Vận dụng', chuDe: 'Toạ độ: tích vô hướng, góc, chân đường cao',
+    kienThuc: '<ul><li>$\\cos A=\\cos(' + vt('AB') + ',' + vt('AC') + ')=\\dfrac{' + vt('AB') + '\\cdot' + vt('AC') + '}{AB\\cdot AC}$; tích vô hướng âm thì góc $A$ tù.</li><li>$H$ là chân đường cao từ $A$: $' + vt('AH') + '\\cdot' + vt('BC') + '=0$ và $' + vt('BH') + '$ cùng phương $' + vt('BC') + '$ (đặt $H=B+t\\,' + vt('BC') + '$ rồi tìm $t$).</li></ul>',
+    tao: function (r) {
+      var A = [r.so(-4, 5), r.so(-4, 5)], B = [r.so(-5, 5), r.so(-5, 5)], C = [r.so(-5, 5), r.so(-5, 5)];
+      var u = [B[0] - A[0], B[1] - A[1]], v = [C[0] - A[0], C[1] - A[1]], w = [C[0] - B[0], C[1] - B[1]];
+      if (u[0] * v[1] - u[1] * v[0] === 0) lai();
+      var d = u[0] * v[0] + u[1] * v[1], n1 = u[0] * u[0] + u[1] * u[1], n2 = v[0] * v[0] + v[1] * v[1], nw = w[0] * w[0] + w[1] * w[1];
+      if (d === 0 || n1 === n2) lai();
+      var tTu = (A[0] - B[0]) * w[0] + (A[1] - B[1]) * w[1], H = [ps(B[0] * nw + tTu * w[0], nw), ps(B[1] * nw + tTu * w[1], nw)], Mi = [ps(B[0] + C[0], 2), ps(B[1] + C[1], 2)];
+      if (H[0] === Mi[0] && H[1] === Mi[1]) lai();
+      var dSai = u[0] * v[0] - u[1] * v[1]; if (dSai === d) dSai = d + 3;
+      var tu = d === 0 ? '0' : can(d, n1 * n2, n1 * n2), tuSai = can(-d, n1 * n2, n1 * n2);
+      var tu2 = d > 0 ? 'nhọn' : 'tù';
+      var y = chonDS(r, [
+        ['$' + vt('AB') + '\\cdot' + vt('AC') + '=' + d + '$', '$' + vt('AB') + '\\cdot' + vt('AC') + '=' + dSai + '$', '$' + vt('AB') + '=' + td(u[0], u[1]) + '$, $' + vt('AC') + '=' + td(v[0], v[1]) + '$, $' + vt('AB') + '\\cdot' + vt('AC') + '=' + u[0] + '\\cdot ' + ng(v[0]) + '+' + ng(u[1]) + '\\cdot ' + ng(v[1]) + '=' + d + '$.'],
+        ['$\\cos A=' + tu + '$', '$\\cos A=' + tuSai + '$', '$AB=\\sqrt{' + n1 + '}$, $AC=\\sqrt{' + n2 + '}$, $\\cos A=\\dfrac{' + d + '}{\\sqrt{' + n1 + '}\\cdot\\sqrt{' + n2 + '}}=' + tu + '$.'],
+        ['Góc $A$ của tam giác $ABC$ là góc ' + tu2 + '.', 'Góc $A$ của tam giác $ABC$ là góc ' + (d > 0 ? 'tù' : 'nhọn') + '.', '$' + vt('AB') + '\\cdot' + vt('AC') + '=' + d + (d > 0 ? '>' : '<') + '0$ nên $\\cos A' + (d > 0 ? '>' : '<') + '0$, góc $A$ ' + tu2 + '.'],
+        ['Chân đường cao kẻ từ $A$ của tam giác $ABC$ là $H\\left(' + H[0] + ';' + H[1] + '\\right)$.', 'Chân đường cao kẻ từ $A$ của tam giác $ABC$ là $H\\left(' + Mi[0] + ';' + Mi[1] + '\\right)$.',
+          'Đặt $' + vt('BH') + '=t\\,' + vt('BC') + '$, $' + vt('BC') + '=' + td(w[0], w[1]) + '$. Từ $' + vt('AH') + '\\cdot' + vt('BC') + '=0$ được $t=\\dfrac{' + vt('BA') + '\\cdot' + vt('BC') + '}{BC^2}=' + ps(tTu, nw) + '$, nên $H\\left(' + H[0] + ';' + H[1] + '\\right)$ (điểm $\\left(' + Mi[0] + ';' + Mi[1] + '\\right)$ là trung điểm $BC$, không phải chân đường cao).']
+      ]);
+      return { loai: 'ds', de: 'Trong mặt phẳng toạ độ $Oxy$, cho tam giác $ABC$ với $A' + td(A[0], A[1]) + '$, $B' + td(B[0], B[1]) + '$, $C' + td(C[0], C[1]) + '$. Xét tính Đúng – Sai trong các khẳng định sau.', y: y };
+    } });
+
+  /* ======================= PHẦN III ======================= */
+  cau.push({ phan: 3, muc: 'Vận dụng', chuDe: 'Bài toán thực tế về tập hợp (biểu đồ Ven)',
+    kienThuc: '<ul><li>Vẽ biểu đồ Ven, điền số từ <b>phần giao của cả ba tập</b> ra ngoài: phần chỉ thuộc hai tập = (số thuộc hai tập đó) − (số thuộc cả ba).</li><li>$|A\\cup B\\cup C|=|A|+|B|+|C|-|A\\cap B|-|B\\cap C|-|C\\cap A|+|A\\cap B\\cap C|$.</li></ul>',
+    tao: function (r) {
+      var abc = r.so(1, 4), ab = r.so(1, 5), bc = r.so(1, 5), ca = r.so(1, 5), a = r.so(2, 9), b = r.so(2, 9), c = r.so(2, 9), khong = r.so(2, 8);
+      var nA = a + ab + ca + abc, nB = b + ab + bc + abc, nC = c + bc + ca + abc, hop = a + b + c + ab + bc + ca + abc, n = hop + khong, hoi = r.tung();
+      var clb = r.chon([['Bóng đá', 'Cầu lông', 'Bơi lội'], ['Toán', 'Tiếng Anh', 'Tin học'], ['Văn nghệ', 'Thể thao', 'Sách']]);
+      var dap = hoi ? khong : a + b + c;
+      var s = '<svg viewBox="0 0 320 256" class="hinh hinh-nho" style="max-width:300px" role="img" aria-label="Biểu đồ Ven ba câu lạc bộ"><rect x="4" y="4" width="312" height="248" rx="10" fill="#fbfbfd" stroke="#8a93ad"/>' +
+        '<circle cx="125" cy="100" r="68" fill="#4f46e5" fill-opacity=".14" stroke="#4f46e5" stroke-width="2"/><circle cx="195" cy="100" r="68" fill="#e8590c" fill-opacity=".14" stroke="#e8590c" stroke-width="2"/><circle cx="160" cy="160" r="68" fill="#0f8b8d" fill-opacity=".14" stroke="#0f8b8d" stroke-width="2"/>' +
+        '<text x="14" y="24" font-size="14" font-family="system-ui,sans-serif" fill="#4f46e5" font-weight="700">' + clb[0] + '</text><text x="306" y="24" font-size="14" font-family="system-ui,sans-serif" fill="#e8590c" font-weight="700" text-anchor="end">' + clb[1] + '</text><text x="160" y="242" font-size="14" font-family="system-ui,sans-serif" fill="#0f8b8d" font-weight="700" text-anchor="middle" dy="2">' + clb[2] + '</text>' +
+        '<text x="160" y="125" font-size="20" text-anchor="middle" font-family="system-ui,sans-serif" fill="#1f2a5a">?</text></svg>';
+      return { loai: 'tl', de: 'Lớp 10A có $' + n + '$ học sinh. Trong đợt đăng kí câu lạc bộ, có $' + nA + '$ bạn đăng kí ' + clb[0] + ', $' + nB + '$ bạn đăng kí ' + clb[1] + ', $' + nC + '$ bạn đăng kí ' + clb[2] + '; trong đó $' + (ab + abc) + '$ bạn đăng kí cả ' + clb[0] + ' và ' + clb[1] + ', $' + (bc + abc) + '$ bạn đăng kí cả ' + clb[1] + ' và ' + clb[2] + ', $' + (ca + abc) + '$ bạn đăng kí cả ' + clb[0] + ' và ' + clb[2] + ', và $' + abc + '$ bạn đăng kí cả ba câu lạc bộ. Hỏi lớp 10A có bao nhiêu học sinh ' + (hoi ? 'không đăng kí câu lạc bộ nào' : 'chỉ đăng kí đúng một câu lạc bộ') + '?',
+        hinh: s, da: dap, hienDa: String(dap),
+        giai: 'Số bạn đăng kí ít nhất một câu lạc bộ: $' + nA + '+' + nB + '+' + nC + '-' + (ab + abc) + '-' + (bc + abc) + '-' + (ca + abc) + '+' + abc + '=' + hop + '$.<br>' +
+          (hoi ? 'Số bạn không đăng kí câu lạc bộ nào: $' + n + '-' + hop + '=' + khong + '$.' :
+            'Chỉ ' + clb[0] + ': $' + nA + '-' + ab + '-' + ca + '-' + abc + '=' + a + '$ (với $' + ab + '=' + (ab + abc) + '-' + abc + '$, $' + ca + '=' + (ca + abc) + '-' + abc + '$); tương tự chỉ ' + clb[1] + ': $' + b + '$, chỉ ' + clb[2] + ': $' + c + '$. Tổng: $' + (a + b + c) + '$.') };
+    } });
+
+  cau.push({ phan: 3, muc: 'Vận dụng', chuDe: 'Biến đổi biểu thức lượng giác khi biết $\\tan\\alpha$',
+    kienThuc: '<ul><li>Biểu thức dạng $\\dfrac{a\\sin\\alpha+b\\cos\\alpha}{c\\sin\\alpha+d\\cos\\alpha}$: chia cả tử và mẫu cho $\\cos\\alpha$ ($\\cos\\alpha\\ne0$) để được $\\dfrac{a\\tan\\alpha+b}{c\\tan\\alpha+d}$.</li><li>Biểu thức có $\\sin^2,\\cos^2,\\sin\\cos$: chia cho $\\cos^2\\alpha$, dùng $\\dfrac{1}{\\cos^2\\alpha}=1+\\tan^2\\alpha$.</li></ul>',
+    tao: function (r) {
+      var t = -r.so(2, 5), a = r.soKhac0(-4, 4), b = r.soKhac0(-4, 4), c = r.soKhac0(-3, 3), d = r.soKhac0(-4, 4), bac2 = r.tung(), tu, mau, bt, giai;
+      if (!bac2) {
+        tu = a * t + b; mau = c * t + d;
+        bt = '\\dfrac{' + L.bieuThuc([[a, '\\sin\\alpha'], [b, '\\cos\\alpha']]) + '}{' + L.bieuThuc([[c, '\\sin\\alpha'], [d, '\\cos\\alpha']]) + '}';
+        giai = 'Chia tử và mẫu cho $\\cos\\alpha\\ne0$: $P=\\dfrac{' + L.bieuThuc([[a, '\\tan\\alpha'], [b, '']]) + '}{' + L.bieuThuc([[c, '\\tan\\alpha'], [d, '']]) + '}=\\dfrac{' + a + '\\cdot(' + t + ')+' + ng(b) + '}{' + c + '\\cdot(' + t + ')+' + ng(d) + '}=' + ps(tu, mau) + '$';
+      } else {
+        tu = a * t * t + b * t; mau = 1 + t * t; // P = a sin^2 + b sin cos
+        bt = L.bieuThuc([[a, '\\sin^2\\alpha'], [b, '\\sin\\alpha\\cos\\alpha']]);
+        giai = '$P=\\cos^2\\alpha\\,(' + L.bieuThuc([[a, '\\tan^2\\alpha'], [b, '\\tan\\alpha']]) + ')=\\dfrac{' + L.bieuThuc([[a, '\\tan^2\\alpha'], [b, '\\tan\\alpha']]) + '}{1+\\tan^2\\alpha}=\\dfrac{' + (a * t * t) + '+' + ng(b * t) + '}{' + mau + '}=' + ps(tu, mau) + '$';
+      }
+      if (mau === 0 || tu === 0) lai();
+      var v = tu / mau; if (Math.abs(v * 10 - Math.round(v * 10)) > 1e-9 || Math.abs(v) >= 100) lai();
+      v = Math.round(v * 10) / 10;
+      return { loai: 'tl', de: 'Cho góc $\\alpha$ với $90^\\circ<\\alpha<180^\\circ$ và $\\tan\\alpha=' + t + '$. Tính giá trị của biểu thức $P=' + bt + '$ (viết dạng số thập phân nếu cần).',
+        da: v, hienDa: L.soVN(v), giai: (nguyen(v) ? giai : giai.slice(0, -1) + '=' + L.soVN(v) + '$') + '.' };
+    } });
+
+  cau.push({ phan: 3, muc: 'Vận dụng', chuDe: 'Bài toán chi phí nhỏ nhất (hệ bất phương trình)',
+    kienThuc: '<ul><li>Lập hệ bất phương trình từ các yêu cầu tối thiểu ("ít nhất" là $\\ge$) và giới hạn ("không quá" là $\\le$).</li><li>Tìm các đỉnh của miền nghiệm (giao điểm các đường biên), tính chi phí $F$ tại mỗi đỉnh, lấy giá trị nhỏ nhất.</li></ul>',
+    tao: function (r) {
+      var x0 = r.so(1, 6), y0 = r.so(1, 6), a1 = r.so(1, 4), b1 = r.so(1, 4), a2 = r.so(1, 4), b2 = r.so(1, 4), X = r.so(6, 9), Y = r.so(6, 9), p = r.so(2, 9) * 10, q = r.so(2, 9) * 10;
+      var c1 = a1 * x0 + b1 * y0, c2 = a2 * x0 + b2 * y0;
+      if (a1 * b2 === a2 * b1) lai();
+      // các đường: x=0, x=X, y=0, y=Y, a1x+b1y=c1, a2x+b2y=c2 ; miền: 0<=x<=X, 0<=y<=Y, a1x+b1y>=c1, a2x+b2y>=c2
+      var dt = [[1, 0, 0], [1, 0, X], [0, 1, 0], [0, 1, Y], [a1, b1, c1], [a2, b2, c2]], dinh = [];
+      var thoa = function (x, y) { return x >= -1e-9 && x <= X + 1e-9 && y >= -1e-9 && y <= Y + 1e-9 && a1 * x + b1 * y >= c1 - 1e-9 && a2 * x + b2 * y >= c2 - 1e-9; };
+      for (var i = 0; i < 6; i++) for (var j = i + 1; j < 6; j++) { var g = giaiDong(dt[i][0], dt[i][1], dt[i][2], dt[j][0], dt[j][1], dt[j][2]); if (g && thoa(g[0], g[1]) && !dinh.some(function (d) { return Math.abs(d[0] - g[0]) < 1e-9 && Math.abs(d[1] - g[1]) < 1e-9; })) dinh.push(g); }
+      if (dinh.length < 4) lai();
+      var F = dinh.map(function (d) { return p * d[0] + q * d[1]; }), fMin = Math.min.apply(null, F);
+      if (F.filter(function (f) { return Math.abs(f - fMin) < 1e-6; }).length > 1 || !nguyen(fMin)) lai();
+      var kMin = F.indexOf(fMin); if (Math.abs(dinh[kMin][0] - x0) > 1e-9 || Math.abs(dinh[kMin][1] - y0) > 1e-9) lai(); // nghiệm tại giao hai yêu cầu
+      var hien = function (x) { if (nguyen(x)) return String(Math.round(x)); for (var m = 2; m <= 60; m++) if (nguyen(x * m)) return ps(Math.round(x * m), m); return L.soVN(x, 2); };
+      var tp = r.chon([['thức ăn loại I', 'thức ăn loại II', 'chất đạm', 'chất béo'], ['phân bón X', 'phân bón Y', 'đạm', 'lân']]);
+      // hình: bảng
+      var cot = [0, 160, 290, 420], hang = [0, 52, 98, 144, 190], nen = ['#eef0ff', '#fff', '#f7f8fc', '#fff4de'];
+      var o = function (c, h, t, dam) { return '<text x="' + ((cot[c] + cot[c + 1]) / 2) + '" y="' + (hang[h] + (h ? 29 : 22)) + '" font-size="16" text-anchor="middle" font-family="system-ui,sans-serif" fill="#1f2a5a"' + (dam ? ' font-weight="700"' : '') + '>' + t + '</text>'; };
+      var hinh = '<svg viewBox="-2 -2 424 196" class="hinh" style="max-width:420px" role="img" aria-label="Bảng thành phần và giá">';
+      for (var h = 0; h < 4; h++) hinh += '<rect x="0" y="' + hang[h] + '" width="420" height="' + (hang[h + 1] - hang[h]) + '" fill="' + nen[h] + '"/>';
+      hinh += '<rect x="0" y="0" width="420" height="190" fill="none" stroke="#5b6b84" stroke-width="1.5" rx="6"/>';
+      [1, 2].forEach(function (c) { hinh += '<line x1="' + cot[c] + '" y1="0" x2="' + cot[c] + '" y2="190" stroke="#c3c9d8"/>'; });
+      [1, 2, 3].forEach(function (k) { hinh += '<line x1="0" y1="' + hang[k] + '" x2="420" y2="' + hang[k] + '" stroke="#c3c9d8"/>'; });
+      hinh += o(1, 0, 'Loại ' + tp[0].split(' ').pop(), true) + o(2, 0, 'Loại ' + tp[1].split(' ').pop(), true) +
+        '<text x="80" y="22" font-size="13" text-anchor="middle" font-family="system-ui,sans-serif" fill="#5f6b85">mỗi kg</text>' +
+        o(0, 1, hoaChu(tp[2]), true) + o(1, 1, a1 + ' đơn vị') + o(2, 1, b1 + ' đơn vị') + o(0, 2, hoaChu(tp[3]), true) + o(1, 2, a2 + ' đơn vị') + o(2, 2, b2 + ' đơn vị') +
+        o(0, 3, 'Giá', true) + o(1, 3, p + ' nghìn') + o(2, 3, q + ' nghìn') + '</svg>';
+      function hoaChu(s2) { return s2.charAt(0).toUpperCase() + s2.slice(1); }
+      return { loai: 'tl', hinh: hinh, de: 'Một trang trại cần trộn ' + tp[0] + ' và ' + tp[1] + ' để có hỗn hợp chứa ít nhất $' + c1 + '$ đơn vị ' + tp[2] + ' và ít nhất $' + c2 + '$ đơn vị ' + tp[3] + '. Thành phần và giá mỗi kg cho trong bảng. Mỗi lần trộn, trang trại chỉ lấy được không quá $' + X + '$ kg loại ' + tp[0].split(' ').pop() + ' và không quá $' + Y + '$ kg loại ' + tp[1].split(' ').pop() + '. Hỏi chi phí nhỏ nhất cho một lần trộn là bao nhiêu nghìn đồng?',
+        da: fMin, hienDa: String(fMin),
+        giai: 'Gọi $x$, $y$ (kg) là khối lượng hai loại. Hệ: $\\begin{cases}0\\le x\\le ' + X + ',\\ 0\\le y\\le ' + Y + '\\\\' + L.bieuThuc([[a1, 'x'], [b1, 'y']]) + '\\ge ' + c1 + '\\\\' + L.bieuThuc([[a2, 'x'], [b2, 'y']]) + '\\ge ' + c2 + '\\end{cases}$; chi phí $F=' + p + 'x+' + q + 'y$.<br>' +
+          'Các đỉnh của miền nghiệm và giá trị $F$: ' + dinh.map(function (d, i) { return '$' + td(hien(d[0]), hien(d[1])) + '\\to ' + hien(F[i]) + '$'; }).join('; ') + '.<br>Chi phí nhỏ nhất là $' + fMin + '$ nghìn đồng (khi $x=' + x0 + '$, $y=' + y0 + '$).' };
+    } });
+
+  cau.push({ phan: 3, muc: 'Vận dụng', chuDe: 'Khoảng cách từ một điểm không đến được tới bờ (định lí sin)',
+    kienThuc: '<ul><li>Từ hai điểm $A$, $B$ trên bờ đo góc nhìn tới $C$: tính $\\widehat{ACB}=180^\\circ-\\widehat A-\\widehat B$, dùng định lí sin tính $AC$.</li><li>Khoảng cách từ $C$ đến bờ $AB$: $d=AC\\cdot\\sin\\widehat{CAB}$ (hoặc $d=\\dfrac{2S_{ABC}}{AB}$).</li></ul>',
+    tao: function (r) {
+      var d = r.chon([80, 100, 120, 150, 200, 250]), a = r.chon([35, 40, 45, 50, 55, 60, 65]), b = r.chon([40, 50, 55, 60, 70, 75]);
+      if (a + b > 140 || a + b < 80) lai();
+      var C = 180 - a - b, AC = d * L.sin(b) / L.sin(C), h = AC * L.sin(a); if (L.ganNuaDV(h, 0.1)) lai();
+      var hr = Math.round(h * 10) / 10;
+      var k = 300 / d, Ax = 50, Ay = 190, Bx = Ax + d * k, Cx = Ax + AC * k * L.cos(a), Cy = Ay - AC * k * L.sin(a), sc = Math.min(1, 150 / (Ay - Cy));
+      Cy = Ay - (Ay - Cy) * sc; Cx = Ax + (Cx - Ax);
+      var s = '<svg viewBox="0 0 400 250" class="hinh" style="max-width:400px" role="img" aria-label="Con tàu C và hai điểm A, B trên bờ"><rect x="0" y="0" width="400" height="200" fill="#d4ecf7"/><rect x="0" y="200" width="400" height="50" fill="#f5e0b7"/>' +
+        '<line x1="' + Ax + '" y1="' + Ay + '" x2="' + Bx.toFixed(1) + '" y2="' + Ay + '" ' + L.NET + '/><line x1="' + Ax + '" y1="' + Ay + '" x2="' + Cx.toFixed(1) + '" y2="' + Cy.toFixed(1) + '" ' + L.NET + '/><line x1="' + Bx.toFixed(1) + '" y1="' + Ay + '" x2="' + Cx.toFixed(1) + '" y2="' + Cy.toFixed(1) + '" ' + L.NET + '/>' +
+        '<line x1="' + Cx.toFixed(1) + '" y1="' + Cy.toFixed(1) + '" x2="' + Cx.toFixed(1) + '" y2="' + Ay + '" stroke="#1f6fd1" stroke-width="2" stroke-dasharray="6 5"/>' +
+        '<path d="M' + (Cx - 18).toFixed(1) + ',' + (Cy - 4).toFixed(1) + ' h36 l-6,9 h-24 z" fill="#c0392b"/><rect x="' + (Cx - 4).toFixed(1) + '" y="' + (Cy - 16).toFixed(1) + '" width="8" height="12" fill="#5b6b84"/>' +
+        L.cham(Ax, Ay) + L.cham(Bx, Ay) + L.chu(Ax - 12, Ay + 24, 'A') + L.chu(Bx + 12, Ay + 24, 'B') + L.chu(Cx + 26, Cy - 6, 'C') +
+        L.cungGoc(Ax, Ay, 30, 0, a) + L.chu(Ax + 48, Ay - 8, a + '°', 14, 'font-style="normal" fill="#e8590c"') +
+        L.cungGoc(Bx, Ay, 30, 180 - b, 180) + L.chu(Bx - 46, Ay - 8, b + '°', 14, 'font-style="normal" fill="#e8590c"') +
+        L.chu((Ax + Bx) / 2, Ay + 34, d + ' m', 15, 'font-style="normal" font-weight="bold" fill="#1f6fd1"') + '</svg>';
+      return { loai: 'tl', hinh: s, de: 'Từ hai vị trí $A$ và $B$ trên bờ biển cách nhau $' + d + '$ m, người ta nhìn thấy một con tàu tại $C$ và đo được $\\widehat{CAB}=' + a + '^\\circ$, $\\widehat{CBA}=' + b + '^\\circ$. Tính khoảng cách từ con tàu đến bờ biển (coi bờ biển là đường thẳng $AB$; đơn vị: m). <b>(Kết quả làm tròn đến hàng phần mười).</b>',
+        da: hr, hienDa: L.soVN(hr),
+        giai: '$\\widehat{ACB}=180^\\circ-' + a + '^\\circ-' + b + '^\\circ=' + C + '^\\circ$. Định lí sin: $AC=\\dfrac{AB\\cdot\\sin' + b + '^\\circ}{\\sin' + C + '^\\circ}' + xap(AC) + '$ (m).<br>Khoảng cách từ $C$ đến bờ: $d=AC\\cdot\\sin' + a + '^\\circ\\approx' + L.soVN(hr) + '$ (m).' };
+    } });
+
+  cau.push({ phan: 3, muc: 'Vận dụng', chuDe: 'Vectơ trong vật lí: lực căng dây treo vật',
+    kienThuc: '<ul><li>Vật đứng yên: tổng các lực bằng $\\vec 0$: $\\vec T_1+\\vec T_2+\\vec P=\\vec 0$.</li><li>Chiếu lên phương ngang và phương thẳng đứng: $T_1\\cos\\alpha=T_2\\cos\\beta$, $T_1\\sin\\alpha+T_2\\sin\\beta=P$ ($\\alpha,\\beta$ là góc giữa dây và trần).</li><li>Hoặc dùng định lí sin trong tam giác lực.</li></ul>',
+    tao: function (r) {
+      var P = r.chon([40, 50, 60, 80, 100, 120]), al = r.chon([30, 40, 45, 50, 60]), be = r.chon([30, 35, 45, 55, 60]); if (al === be) lai();
+      var hoi = r.tung(), T1 = P * L.cos(be) / L.sin(al + be), T2 = P * L.cos(al) / L.sin(al + be), T = hoi ? T1 : T2;
+      if (L.ganNuaDV(T, 0.1)) lai();
+      var Tr = Math.round(T * 10) / 10;
+      var ta = Math.tan(al * Math.PI / 180), tb = Math.tan(be * Math.PI / 180), H = Math.min(150, 300 / (1 / ta + 1 / tb)), top = 40, Oy = top + H;
+      var Ax = 200 - H * (1 / ta + 1 / tb) / 2, Ox = Ax + H / ta, Bx = Ox + H / tb;
+      var s = '<svg viewBox="0 ' + (top - 24).toFixed(0) + ' 400 ' + (Oy - top + 90).toFixed(0) + '" class="hinh" style="max-width:380px" role="img" aria-label="Đèn treo bằng hai sợi dây">' +
+        '<rect x="10" y="' + (top - 14).toFixed(1) + '" width="380" height="14" fill="url(#tran)"/><defs><pattern id="tran" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="10" height="10" fill="#e3e3e3"/><line x1="0" y1="0" x2="0" y2="10" stroke="#999" stroke-width="2"/></pattern></defs>' +
+        '<line x1="10" y1="' + top.toFixed(1) + '" x2="390" y2="' + top.toFixed(1) + '" stroke="#333" stroke-width="2"/>' +
+        '<line x1="' + Ax.toFixed(1) + '" y1="' + top.toFixed(1) + '" x2="' + Ox + '" y2="' + Oy + '" stroke="#7a4b00" stroke-width="2.4"/><line x1="' + Bx.toFixed(1) + '" y1="' + top.toFixed(1) + '" x2="' + Ox + '" y2="' + Oy + '" stroke="#7a4b00" stroke-width="2.4"/>' +
+        '<line x1="' + Ox + '" y1="' + Oy + '" x2="' + Ox + '" y2="' + (Oy + 20) + '" stroke="#333" stroke-width="2"/><path d="M' + (Ox - 22) + ',' + (Oy + 44) + ' Q' + Ox + ',' + (Oy + 8) + ' ' + (Ox + 22) + ',' + (Oy + 44) + ' z" fill="#f6c343" stroke="#a5671c"/><circle cx="' + Ox + '" cy="' + (Oy + 46) + '" r="6" fill="#fff3b0"/>' +
+        L.cungGoc(Ax, top, 34, -al, 0) + L.chu(Ax + 52, top + 22, al + '°', 14, 'font-style="normal" fill="#e8590c"') +
+        L.cungGoc(Bx, top, 34, 180, 180 + be) + L.chu(Bx - 52, top + 22, be + '°', 14, 'font-style="normal" fill="#e8590c"') +
+        L.chu((Ax + Ox) / 2 - 14, (top + Oy) / 2 + 2, '(1)', 14, 'font-style="normal"') + L.chu((Bx + Ox) / 2 + 14, (top + Oy) / 2 + 2, '(2)', 14, 'font-style="normal"') + '</svg>';
+      return { loai: 'tl', hinh: s, de: 'Một chiếc đèn có trọng lượng $P=' + P + '$ N được treo vào trần nhà bằng hai sợi dây (1) và (2). Dây (1) hợp với trần nhà góc $' + al + '^\\circ$, dây (2) hợp với trần nhà góc $' + be + '^\\circ$ (như hình vẽ). Đèn đứng yên. Tính độ lớn lực căng của dây (' + (hoi ? 1 : 2) + ') (đơn vị: N). <b>(Kết quả làm tròn đến hàng phần mười).</b>',
+        da: Tr, hienDa: L.soVN(Tr),
+        giai: 'Đèn đứng yên nên $\\vec T_1+\\vec T_2+\\vec P=\\vec 0$. Chiếu lên phương ngang: $T_1\\cos' + al + '^\\circ=T_2\\cos' + be + '^\\circ$; phương thẳng đứng: $T_1\\sin' + al + '^\\circ+T_2\\sin' + be + '^\\circ=' + P + '$.<br>' +
+          'Giải ra $T_1=\\dfrac{P\\cos' + be + '^\\circ}{\\sin' + (al + be) + '^\\circ}' + xap(T1) + '$ N, $T_2=\\dfrac{P\\cos' + al + '^\\circ}{\\sin' + (al + be) + '^\\circ}' + xap(T2) + '$ N.<br>Vậy lực căng dây (' + (hoi ? 1 : 2) + ') $\\approx' + L.soVN(Tr) + '$ N.' };
+    } });
+
+  cau.push({ phan: 3, muc: 'Vận dụng', chuDe: 'Giá trị nhỏ nhất của tích vô hướng (toạ độ)',
+    kienThuc: '<ul><li>Gọi toạ độ điểm di động theo một ẩn (ví dụ $M(m;0)$ trên $Ox$), viết tích vô hướng thành biểu thức bậc hai theo $m$.</li><li>$am^2+bm+c$ với $a>0$ nhỏ nhất tại $m=-\\dfrac b{2a}$ (hoặc đưa về dạng $(m-k)^2+\\text{hằng số}$).</li><li>Cách khác: với $I$ là trung điểm $AB$: $' + vt('MA') + '\\cdot' + vt('MB') + '=MI^2-\\dfrac{AB^2}{4}$.</li></ul>',
+    tao: function (r) {
+      var x1 = r.so(-6, 6), x2 = x1 + 2 * r.soKhac0(-5, 5), y1 = r.soKhac0(-6, 6), y2 = r.soKhac0(-6, 6), k = (x1 + x2) / 2, hs = ((x2 - x1) / 2), mn = y1 * y2 - hs * hs;
+      return { loai: 'tl', de: 'Trong mặt phẳng toạ độ $Oxy$, cho hai điểm $A' + td(x1, y1) + '$ và $B' + td(x2, y2) + '$. Điểm $M$ thay đổi trên trục hoành. Tìm giá trị nhỏ nhất của $' + vt('MA') + '\\cdot' + vt('MB') + '$.',
+        da: mn, hienDa: String(mn),
+        giai: '$M(m;0)$: $' + vt('MA') + '=(' + hieu(x1, 'm') + ';' + y1 + ')$, $' + vt('MB') + '=(' + hieu(x2, 'm') + ';' + y2 + ')$.<br>$' + vt('MA') + '\\cdot' + vt('MB') + '=(' + hieu(x1, 'm') + ')(' + hieu(x2, 'm') + ')+' + ng(y1) + '\\cdot ' + ng(y2) + '=' + L.bieuThuc([[1, 'm^2'], [-(x1 + x2), 'm'], [x1 * x2 + y1 * y2, '']]) + '=(m' + (k > 0 ? '-' + k : k < 0 ? '+' + (-k) : '') + ')^2' + (mn >= 0 ? '+' : '') + mn + '\\ge ' + mn + '$.<br>Giá trị nhỏ nhất là $' + mn + '$ khi $m=' + k + '$.' };
+    } });
+
+  DE_ON_TAP.push({
+    ma: 'L10.THUTHACH.HK1', lop: 10, kieu: 'thuthach', ten: 'Đề thử thách cuối học kì I', tenNgan: 'Đề thử thách HK1',
+    moTa: 'Đề 22 câu phủ cả 4 chương học kì I (Mệnh đề – Tập hợp, Bất phương trình bậc nhất hai ẩn, Hệ thức lượng, Vectơ), mức độ Biết – Hiểu – Vận dụng theo cấu trúc đề minh hoạ. Mỗi lần làm là một đề với số liệu mới.',
+    cau: cau
+  });
+})();
+
+function taoCauOnTap(c, seed, i) {
+  for (var lan = 0; lan < 200; lan++) {
+    try { var q = c.tao(OTL.R(seed * 7919 + (i + 1) * 104729 + lan * 15485863)); q.phan = c.phan; if (c.muc) q.muc = c.muc; return q; }
+    catch (e) { if (e.message !== 'lai') throw e; }
+  }
+  throw new Error('Không sinh được câu ' + (i + 1));
+}
+function taoDeOnTap(de, seed) { return de.cau.map(function (c, i) { return taoCauOnTap(c, seed, i); }); }
+</script>
+
+<script>
+/* ============================================================
    GIAO DIỆN WEB (học sinh và thầy). Không chứa nội dung dạng toán.
    ============================================================ */
 var S = { token: null, nd: null, tienDo: {}, lam: null, ql: { tab: 'ketqua' } };
@@ -1294,6 +2252,7 @@ function kiHieuNen() {
 }
 function soLieuHS() {
   var k = Object.keys(S.tienDo || {}), xong = 0, tong = 0;
+  k = k.filter(function (m) { return !(window.laMaOT && laMaOT(m)); }); // đề ôn tập tính điểm riêng
   k.forEach(function (m) { var v = Number(S.tienDo[m][0]) || 0; tong += v; if (v >= 100) xong++; });
   return { lam: k.length, xong: xong, tb: k.length ? Math.round(tong / k.length) : 0 };
 }
@@ -1414,6 +2373,7 @@ function veTrangChu(duong) {
     });
   } else if (duong.length === 1) {
     tieuDe = 'Lớp ' + duong[0]; phuDe = 'Chọn chương';
+    if (window.mucOnTap) muc = muc.concat(mucOnTap(duong[0], duong));
     c[duong[0]].thuTu.forEach(function (ch, i) {
       var m = /Chương\s+([IVXLC]+|\d+)/i.exec(ch), ds = DANG_TOAN.filter(function (d) { return String(d.lop) === String(duong[0]) && d.chuong === ch; }), dc = demCau(ds);
       muc.push({ bt: m ? m[1] : i + 1, mau: (i + 4) % 6, ten: ch, mo: c[duong[0]].chuong[ch].thuTu.length + ' bài · ' + dc.xong + '/' + dc.tong + ' câu đạt 100%', td: dc.pt, di: duong.concat([ch]) });
@@ -1442,7 +2402,7 @@ function veTrangChu(duong) {
   }
   html += '<h2 class="tieu-de">' + esc(tieuDe) + '</h2>' + (phuDe ? '<p class="phu-de">' + esc(phuDe) + '</p>' : '<div style="height:8px"></div>') +
     '<ul class="ds' + (duong.length === 0 ? ' luoi' : '') + '">' + muc.map(function (m, i) {
-    return '<li data-i="' + i + '"' + (m.kpi ? ' class="kpi"' : '') + '><span class="o-bieu-tuong m' + m.mau + '">' + esc(m.bt) + '</span><span class="ds-chu"><b>' + esc(m.ten) + '</b>' + (m.chip || '') +
+    return '<li data-i="' + i + '"' + (m.kpi ? ' class="kpi"' : m.ontap ? ' class="ontap"' : '') + '><span class="o-bieu-tuong m' + m.mau + '">' + esc(m.bt) + '</span><span class="ds-chu"><b>' + esc(m.ten) + '</b>' + (m.chip || '') +
       (m.mo ? '<small>' + esc(m.mo) + '</small>' : '') + (m.td != null ? '<span class="thanh-td"><i style="width:' + m.td + '%"></i></span>' : '') +
       '</span><span class="ds-phai">' + (m.nhan || '') + ic('phai') + '</span></li>';
   }).join('') + '</ul>';
@@ -1453,7 +2413,7 @@ function veTrangChu(duong) {
     li.onclick = function () {
       var m = muc[Number(li.getAttribute('data-i'))];
       if (m.khoa) { hopThoai('<p><b>Thử thách chưa mở</b></p><p>' + esc(m.mo) + ' để mở bài Vượt KPI nhé.</p>', ['Đóng']); return; }
-      if (m.cau) batDauCau(m.cau, duong); else veTrangChu(m.di);
+      if (m.ontap) veOnTap(m.ontap, duong); else if (m.cau) batDauCau(m.cau, duong); else veTrangChu(m.di);
     };
   });
 }
@@ -1906,7 +2866,8 @@ function luaChonPham() {
   var p = phamDangChon(), o = function (v, n) { return '<option value="' + esc(v) + '"' + (p === v ? ' selected' : '') + '>' + esc(n) + '</option>'; };
   return o('tat', 'Toàn bộ các bài') +
     '<optgroup label="Theo chương">' + danhSachChuong().map(function (c) { return o('c|' + c.khoa, c.nhan); }).join('') + '</optgroup>' +
-    '<optgroup label="Theo bài">' + danhSachBai().map(function (b, i) { return o('b|' + i, b.nhan); }).join('') + '</optgroup>';
+    '<optgroup label="Theo bài">' + danhSachBai().map(function (b, i) { return o('b|' + i, b.nhan); }).join('') + '</optgroup>' +
+    (window.DE_ON_TAP && DE_ON_TAP.length ? '<optgroup label="Ôn tập kiểm tra">' + DE_ON_TAP.map(function (d) { return o('ot|' + d.ma, 'Lớp ' + d.lop + ' · ' + d.tenNgan); }).join('') + '</optgroup>' : '');
 }
 // Thống kê một nhóm câu của một học sinh: số câu đúng (có lượt điền đúng kết quả cuối cùng và đạt từ 50%) / tổng số câu, % trung bình (câu chưa làm tính 0%). Không tính câu Vượt KPI.
 // Lượt làm có điền đúng kết quả cuối cùng không (ô của dòng cuối cùng có ô điền, em tự điền, không mở gợi ý)
@@ -1938,6 +2899,7 @@ function oTK(t, nho) {
 }
 function veBangKetQua(noi) {
   var du = S.ql.du, ds = danhSachBai(), pham = phamDangChon(), tot = {};
+  if (/^ot\|/.test(pham)) return veBangOnTap(noi, pham.slice(3));
   du.kq.forEach(function (r) {
     var k = r.tk.toLowerCase() + '|' + r.maCau, c = tot[k], d = r.muc >= 50 && kqCuoiDung(r);
     if (!c || r.muc > c.muc) tot[k] = { muc: r.muc, cach: r.cach, soGoiY: r.soGoiY, xemTB: r.xemTB, dung: (c && c.dung) || d };
@@ -2009,6 +2971,8 @@ function veChiTietHS(tk) {
   var h = '<div class="the"><a href="#" id="ct-ve">‹ Bảng kết quả</a><h3 style="margin:8px 0">' + esc(hs ? hs.hoTen : tk) + '</h3><div class="bang-cuon"><table class="bang"><tr><th>Lúc</th><th>Câu</th><th>Mức</th><th>Cách</th><th>Mã đề</th></tr>';
   ds.forEach(function (r, i) {
     var t = timCau(r.maCau);
+    if (window.laMaOT && laMaOT(r.maCau)) { var ctd = {}; try { ctd = JSON.parse(r.chiTiet || '{}'); } catch (e) {}
+      h += '<tr><td style="white-space:nowrap">' + ngayGio(r.tg) + '</td><td>' + esc(timDeOT(r.maCau).tenNgan) + '</td><td><b>' + diemVN(ctd.diem != null ? Math.round(ctd.diem * 100) : r.muc * 10) + ' đ</b>' + (r.chuaXong ? '<br><span class="mo">còn câu bỏ trống</span>' : '') + '</td><td>Cả đề<br><span class="mo">' + Math.round(r.giay / 60) + ' phút</span></td><td><a href="#" data-i="' + i + '">' + r.seed + '</a></td></tr>'; return; }
     h += '<tr><td style="white-space:nowrap">' + ngayGio(r.tg) + '</td><td title="' + esc(r.tenCau) + '">' + esc(t ? t.dang.maDang.split('.').pop() + ' · ' + t.cau.ten : r.maCau) + '</td><td><span class="diem ' + lopDiem(r.muc) + '">' + r.muc + '%</span>' + (r.chuaXong ? '<br><span class="mo">chưa xong</span>' : '') +
       '</td><td>' + kiHieuCach(r) + '<br><span class="mo">' + (r.cach === 'dapan' ? 'sai ' + r.soSai + ' lần' : r.soGoiY + ' gợi ý, ' + r.soSai + ' ô sai') + '</span></td><td><a href="#" data-i="' + i + '">' + r.seed + '</a></td></tr>';
   });
@@ -2019,6 +2983,7 @@ function veChiTietHS(tk) {
 }
 function xemLaiBai(r) { // dựng lại đúng đề và bài làm của học sinh
   var t = timCau(r.maCau), x = document.getElementById('ct-xem');
+  if (window.laMaOT && laMaOT(r.maCau)) return xemLaiBaiOT(r, x);
   if (!t) { x.innerHTML = '<p class="loi">Không tìm thấy câu ' + esc(r.maCau) + '.</p>'; return; }
   var ct = {}; try { ct = JSON.parse(r.chiTiet || '{}'); } catch (e) {}
   var cu = S.lam, p = t.cau.tao(Number(r.seed)), dong = t.cau.dong(p);
@@ -2109,6 +3074,409 @@ function dsLop(lop) {
   goi('layPhien', t).then(function (kq) { S.token = t; S.nd = kq.nd; S.tienDo = kq.tienDo || {}; veTrangChu([]); })
     .catch(function () { luu('toan_token', null); veDangNhap(); });
 })();
+</script>
+
+<style>
+.ds li.ontap{background:linear-gradient(135deg,#e9fbf3,#eef6ff);border-color:#a7e3c8}
+.ds li.ontap:has(.mtt){background:linear-gradient(135deg,#fff3e0,#fde8f1);border-color:#f5b37a}
+.o-bieu-tuong.mtt{background:linear-gradient(135deg,#f97316,#db2777);font-size:17px}
+.ot-muc{font-size:12px;font-weight:700;border-radius:99px;padding:2px 9px;background:#fde7d3;color:#b4480b;margin-left:6px;white-space:nowrap}
+.ot-the-tt{border:1.5px solid #f5b37a;background:linear-gradient(135deg,#fff7ed,#fdf0f6)}
+.o-bieu-tuong.mot{background:linear-gradient(135deg,#34d399,#0ea5e9);font-size:15px}
+.ot-chip-diem{font-size:12px;font-weight:700;border-radius:99px;padding:3px 10px;background:var(--dung2);color:var(--dung);white-space:nowrap}
+.ot-cau-truc{width:100%;border-collapse:collapse;font-size:14.5px;margin-top:8px}
+.ot-cau-truc td,.ot-cau-truc th{border-bottom:1px solid var(--vien);padding:8px 6px;text-align:left;vertical-align:top}
+.ot-cau-truc th{color:var(--mo);font-weight:600;font-size:13px}
+.ot-dau-cau{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.ot-gio{font-variant-numeric:tabular-nums}
+.ot-pa{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.ot-pa button{display:flex;align-items:center;gap:12px;text-align:left;width:100%;padding:10px 12px;min-height:52px;border-radius:14px;border:1.5px solid var(--vien2);background:var(--the);color:var(--chu);font-size:16px}
+.ot-pa button .ch{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;font-weight:800;background:var(--the2);color:var(--chinh);flex:none}
+.ot-pa button.da{border-color:var(--chinh);background:var(--chinh2)}
+.ot-pa button.da .ch{background:var(--chinh);color:var(--chu-tren-chinh)}
+.ot-pa button.dung{border-color:var(--dung);background:var(--dung2)}
+.ot-pa button.dung .ch{background:var(--dung);color:#fff}
+.ot-pa button.sai{border-color:var(--sai);background:var(--sai2)}
+.ot-pa button.sai .ch{background:var(--sai);color:#fff}
+.ot-pa.xem button{cursor:default}
+.ot-y{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--vien)}
+.ot-y:last-child{border-bottom:0}
+.ot-y .noi{flex:1;min-width:0;font-size:16px;line-height:1.6}
+.ot-y .nhan-y{font-weight:800;color:var(--chinh);margin-right:4px}
+.ot-ds-nut{display:flex;gap:6px;flex:none}
+.ot-ds-nut button{min-width:58px;min-height:42px;border-radius:12px;border:1.5px solid var(--vien2);background:var(--the);color:var(--chu);font-weight:700;font-size:14.5px;padding:0 10px}
+.ot-ds-nut button.da.d{border-color:var(--dung);background:var(--dung2);color:var(--dung)}
+.ot-ds-nut button.da.s{border-color:var(--sai);background:var(--sai2);color:var(--sai)}
+.ot-tl{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px}
+.ot-tl input{max-width:220px;font-size:20px;font-weight:700;text-align:center;letter-spacing:.04em}
+.ot-tl .goi{font-size:13px;color:var(--mo)}
+.ot-tl .canh{font-size:13px;color:var(--vang)}
+.ot-thanh{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--nen-dau);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-top:1px solid var(--vien);padding:10px max(12px,env(safe-area-inset-left,0px)) calc(10px + env(safe-area-inset-bottom,0px))}
+.ot-thanh .trong-thanh{max-width:780px;margin:0 auto;display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center}
+.ot-thanh .nut{min-height:46px;padding:10px 12px}
+.ot-thanh .nut-cau{display:flex;flex-direction:column;gap:0;line-height:1.15;min-width:118px}
+.ot-thanh .nut-cau small{font-size:11.5px;font-weight:600;opacity:.85}
+.ot-tien-do{height:6px;border-radius:99px;background:var(--the2);overflow:hidden;margin:2px 0 10px}
+.ot-tien-do i{display:block;height:100%;background:linear-gradient(90deg,#10b981,#0ea5e9);border-radius:99px}
+.ot-luoi{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin:6px 0 12px}
+.ot-luoi button{position:relative;min-height:44px;border-radius:12px;font-weight:800;font-size:16px;border:2px solid transparent;color:#fff}
+.ot-luoi button.co{background:#10b981}
+.ot-luoi button.chua{background:#ef4444}
+.ot-luoi button.mot-phan{background:#ef4444}
+.ot-luoi button.mot-phan small{position:absolute;right:3px;bottom:1px;font-size:10px;font-weight:700;opacity:.95}
+.ot-luoi button.dang{outline:3px solid var(--chinh);outline-offset:2px}
+.ot-luoi button.kq-dung{background:#10b981}
+.ot-luoi button.kq-mot{background:#f59e0b}
+.ot-luoi button.kq-sai{background:#ef4444}
+.ot-chu-giai{display:flex;flex-wrap:wrap;gap:12px;font-size:13px;color:var(--mo);margin:4px 0 10px}
+.ot-chu-giai i{display:inline-block;width:14px;height:14px;border-radius:4px;vertical-align:-2px;margin-right:5px}
+.ot-phan-ten{font-size:13px;font-weight:700;color:var(--mo);margin:10px 0 0}
+#ot-bang .the{max-height:82vh;overflow:auto}
+.ot-diem-lon{font-size:44px;font-weight:800;line-height:1;color:var(--chu)}
+.ot-diem-lon small{white-space:nowrap;font-size:17px;font-weight:600;color:var(--mo)}
+.ot-bang-diem{width:100%;border-collapse:collapse;font-size:14.5px;margin-top:12px}
+.ot-bang-diem td{padding:7px 4px;border-bottom:1px solid var(--vien)}
+.ot-bang-diem td:last-child{text-align:right;font-weight:700;white-space:nowrap}
+.ot-tab{display:flex;gap:8px;margin:16px 0 4px;flex-wrap:wrap}
+.ot-tab button{flex:1;min-width:150px;min-height:48px;border-radius:14px;border:1.5px solid var(--vien2);background:var(--the);color:var(--chu);font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px;padding:8px 12px}
+.ot-tab button.chon{border-color:var(--chinh);background:var(--chinh2);color:var(--chinh)}
+.ot-giai{background:var(--the2);border-radius:14px;padding:12px 14px;margin-top:12px;font-size:15.5px;line-height:1.75}
+.ot-giai b.tde{display:block;margin-bottom:4px;color:var(--chinh)}
+.ot-kt{background:var(--vang2);border-radius:14px;padding:10px 14px;margin-top:10px;font-size:15px;line-height:1.7}
+.ot-kt ul{margin:4px 0;padding-left:20px}
+.ot-kt b.tde{color:var(--vang)}
+.ot-vd{border:1.5px dashed var(--chinh3);border-radius:14px;padding:12px 14px;margin-top:10px}
+.ot-vd>b{color:var(--chinh)}
+.ot-tom{font-size:14.5px;margin:8px 0 0}
+.ot-tom .d{color:var(--dung);font-weight:700}.ot-tom .s{color:var(--sai);font-weight:700}
+.ot-bang-ds{width:100%;border-collapse:collapse;font-size:15px;margin-top:8px}
+.ot-bang-ds td,.ot-bang-ds th{border-bottom:1px solid var(--vien);padding:8px 4px;text-align:left;vertical-align:top}
+.ot-bang-ds th{font-size:12.5px;color:var(--mo);font-weight:600}
+.ot-bang-ds td.d{color:var(--dung);font-weight:700}.ot-bang-ds td.s{color:var(--sai);font-weight:700}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .ds li.ontap{background:linear-gradient(135deg,#0f2a22,#102338);border-color:#1f5a46}}
+:root[data-theme="dark"] .ds li.ontap{background:linear-gradient(135deg,#0f2a22,#102338);border-color:#1f5a46}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .ds li.ontap:has(.mtt){background:linear-gradient(135deg,#3a1d0a,#3a1027);border-color:#8a4a1f}:root:not([data-theme="light"]) .ot-the-tt{background:linear-gradient(135deg,#2b1708,#2b0d1f);border-color:#8a4a1f}:root:not([data-theme="light"]) .ot-muc{background:#4a250c;color:#fdba74}}
+:root[data-theme="dark"] .ds li.ontap:has(.mtt){background:linear-gradient(135deg,#3a1d0a,#3a1027);border-color:#8a4a1f}
+:root[data-theme="dark"] .ot-the-tt{background:linear-gradient(135deg,#2b1708,#2b0d1f);border-color:#8a4a1f}
+:root[data-theme="dark"] .ot-muc{background:#4a250c;color:#fdba74}
+@media (max-width:420px){.ot-luoi{grid-template-columns:repeat(6,1fr);gap:6px}.ot-ds-nut button{min-width:50px}.ot-thanh .nut-cau{min-width:104px}}
+</style>
+<div id="ot-bang" style="display:none"></div>
+<script>
+/* ============================================================
+   GIAO DIỆN ÔN TẬP KIỂM TRA: làm cả bộ đề, lần lượt từng câu
+   Thang điểm (cấu trúc 2025): Phần I mỗi câu 0,25 điểm; Phần II mỗi câu tối đa 1 điểm
+   (đúng 1 ý 0,1; 2 ý 0,25; 3 ý 0,5; 4 ý 1); Phần III mỗi câu 0,5 điểm.
+   ============================================================ */
+function icOT(t) { var d = { gio: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', luoi: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>' }[t];
+  return '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>'; }
+var OT_DS = [0, 10, 25, 50, 100]; // điểm Phần II (phần trăm điểm) theo số ý đúng
+var OT_TEN_PHAN = { 1: 'Phần I · Trắc nghiệm', 2: 'Phần II · Đúng sai', 3: 'Phần III · Trả lời ngắn' };
+var OT_LA_MA = { 1: 'I', 2: 'II', 3: 'III' };
+function timDeOT(ma) { for (var i = 0; i < DE_ON_TAP.length; i++) if (DE_ON_TAP[i].ma === ma) return DE_ON_TAP[i]; return null; }
+function laMaOT(ma) { return !!timDeOT(ma); }
+function diemVN(tram) { var s = (tram / 100).toFixed(2).replace(/0+$/, '').replace(/\.$/, ''); return s.replace('.', ','); } // 735 -> 7,35
+function khoaLuuOT(ma) { return 'toan_ot_' + (S.nd ? S.nd.tk : '') + '_' + ma; }
+function soThuTuCau(cau, i) { var k = 0; for (var j = 0; j <= i; j++) if (cau[j].phan === cau[i].phan) k++; return k; }
+function docSoOT(g) {
+  var s = String(g == null ? '' : g).trim().replace(/\s+/g, '').replace(/[−–]/g, '-').replace(',', '.');
+  return /^[+-]?\d+(\.\d+)?$/.test(s) ? Number(s) : null;
+}
+function daLamOT(q, a) {
+  if (q.loai === 'tn') return a != null;
+  if (q.loai === 'ds') return !!a && a.every(function (x) { return x != null; });
+  return String(a == null ? '' : a).trim() !== '';
+}
+function soYDaChon(a) { return (a || []).filter(function (x) { return x != null; }).length; }
+// chấm một câu: trả về { tram: điểm x100, toiDa, dung: đúng hoàn toàn, soY }
+function chamCauOT(q, a) {
+  if (q.loai === 'tn') return { tram: a === q.dung ? 25 : 0, toiDa: 25, dung: a === q.dung };
+  if (q.loai === 'ds') {
+    var k = q.y.filter(function (y, i) { return a && a[i] === y.dung; }).length;
+    return { tram: OT_DS[k], toiDa: 100, dung: k === 4, soY: k };
+  }
+  var v = docSoOT(a), ok = v != null && Math.abs(v - q.da) < 1e-9;
+  return { tram: ok ? 50 : 0, toiDa: 50, dung: ok };
+}
+function chamDeOT(cau, tl) {
+  var tong = 0, phan = { 1: { tram: 0, dung: 0, n: 0 }, 2: { tram: 0, dung: 0, n: 0, y: [] }, 3: { tram: 0, dung: 0, n: 0 } }, tung = [];
+  cau.forEach(function (q, i) {
+    var c = chamCauOT(q, tl[i]); tung.push(c); tong += c.tram;
+    var p = phan[q.phan]; p.tram += c.tram; p.n++; if (c.dung) p.dung++; if (q.loai === 'ds') p.y.push(c.soY);
+  });
+  return { tram: tong, phan: phan, tung: tung };
+}
+/* ---------- mục ở trang Lớp ---------- */
+function mucOnTap(lop, duong) {
+  return DE_ON_TAP.filter(function (d) { return String(d.lop) === String(lop); }).map(function (d) {
+    var td = S.tienDo[d.ma], dang = null; try { dang = JSON.parse(doc(khoaLuuOT(d.ma)) || 'null'); } catch (e) {}
+    var tt = d.kieu === 'thuthach';
+    return { bt: tt ? '★' : 'HK', mau: tt ? 'tt' : 'ot', ten: d.tenNgan, ontap: d.ma,
+      mo: d.cau.length + ' câu · ' + (tt ? 'cả học kì I, mức độ như đề minh hoạ của Bộ' : 'làm cả đề, chấm thang 10') + (dang ? ' · đang làm dở' : ''),
+      nhan: td ? '<span class="ot-chip-diem">' + diemVN(td[0] * 10) + ' đ</span>' : '' };
+  });
+}
+/* ---------- trang giới thiệu đề ---------- */
+function veOnTap(ma, duong) {
+  thanhKiHieu(false); dungGioOT(); S.lam = null;
+  var de = timDeOT(ma), td = S.tienDo[ma], dang = null;
+  try { dang = JSON.parse(doc(khoaLuuOT(ma)) || 'null'); } catch (e) {}
+  var dem = { 1: 0, 2: 0, 3: 0 }; de.cau.forEach(function (c) { dem[c.phan]++; });
+  var h = dauTrang() + '<div class="duong-dan"><a id="ot-ve">‹ Lớp ' + esc(de.lop) + '</a></div>' +
+    '<h2 class="tieu-de">' + (de.kieu === 'thuthach' ? '★ ' : '') + esc(de.ten) + '</h2><p class="phu-de">' + esc(de.moTa) + '</p>' +
+    '<div class="the' + (de.kieu === 'thuthach' ? ' ot-the-tt' : '') + '"><b>Cấu trúc đề và cách tính điểm</b><table class="ot-cau-truc"><tr><th>Phần</th><th>Số câu</th><th>Cách tính điểm</th></tr>' +
+    '<tr><td><b>I.</b> Trắc nghiệm 4 phương án</td><td>' + dem[1] + '</td><td>Mỗi câu đúng 0,25 điểm</td></tr>' +
+    '<tr><td><b>II.</b> Đúng sai (mỗi câu 4 ý)</td><td>' + dem[2] + '</td><td>Đúng 1 ý: 0,1 · 2 ý: 0,25 · 3 ý: 0,5 · 4 ý: 1 điểm</td></tr>' +
+    '<tr><td><b>III.</b> Trả lời ngắn</td><td>' + dem[3] + '</td><td>Mỗi câu đúng 0,5 điểm</td></tr></table>' +
+    '<p class="mo nho" style="margin:10px 0 0">Em làm lần lượt từng câu. Nút <b>Các câu</b> ở thanh dưới màn hình cho em xem lại: câu đã làm màu <b style="color:#10b981">xanh lá</b>, câu chưa làm màu <b style="color:#ef4444">đỏ</b>. Làm xong bấm <b>Nộp bài</b> để xem điểm, lời giải và nội dung cần ôn tập.</p>' +
+    (td ? '<p style="margin:10px 0 0">Điểm cao nhất của em: <span class="ot-chip-diem">' + diemVN(td[0] * 10) + ' điểm</span></p>' : '') +
+    '<div class="hang-nut">' + (dang ? '<button class="nut" id="ot-tiep">' + ic('tiep') + 'Làm tiếp bài đang dở (đã làm ' + dang.soDaLam + '/' + de.cau.length + ')</button><button class="nut phu" id="ot-moi">' + ic('lamlai') + 'Làm đề mới</button>'
+      : '<button class="nut" id="ot-moi">' + ic('tiep') + 'Bắt đầu làm bài</button>') + '</div></div>';
+  app.innerHTML = h; ganDau(); window.scrollTo(0, 0);
+  document.getElementById('ot-ve').onclick = function () { veTrangChu(duong); };
+  document.getElementById('ot-moi').onclick = function () {
+    if (!dang) return batDauOT(ma, duong);
+    hopThoai('<p><b>Làm đề mới?</b></p><p>Bài đang làm dở sẽ bị bỏ.</p>', ['Làm đề mới', 'Quay lại']).then(function (i) { if (i === 0) batDauOT(ma, duong); });
+  };
+  var t = document.getElementById('ot-tiep'); if (t) t.onclick = function () { batDauOT(ma, duong, dang); };
+}
+function batDauOT(ma, duong, dang) {
+  var de = timDeOT(ma), seed = dang ? dang.seed : seedMoi();
+  var cau = taoDeOnTap(de, seed);
+  S.ot = { ma: ma, de: de, duong: duong, seed: seed, cau: cau,
+    tl: dang ? dang.tl : cau.map(function (q) { return q.loai === 'ds' ? [null, null, null, null] : q.loai === 'tn' ? null : ''; }),
+    cur: dang ? dang.cur || 0 : 0, batDau: dang ? Date.now() - (dang.giay || 0) * 1000 : Date.now(), xong: false };
+  luuDangLamOT(); veOtLam();
+}
+function soDaLamOT() { var O = S.ot; return O.cau.filter(function (q, i) { return daLamOT(q, O.tl[i]); }).length; }
+function luuDangLamOT() {
+  var O = S.ot; if (!O || O.xong) return;
+  luu(khoaLuuOT(O.ma), JSON.stringify({ seed: O.seed, tl: O.tl, cur: O.cur, giay: Math.round((Date.now() - O.batDau) / 1000), soDaLam: soDaLamOT() }));
+}
+var gioOT = null;
+function dungGioOT() { if (gioOT) { clearInterval(gioOT); gioOT = null; } }
+function chuoiGio(giay) { var m = Math.floor(giay / 60), s = giay % 60; return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s; }
+/* ---------- làm từng câu ---------- */
+function veOtLam() {
+  dungGioOT(); thanhKiHieu(false);
+  var O = S.ot, q = O.cau[O.cur], a = O.tl[O.cur], n = O.cau.length, so = soThuTuCau(O.cau, O.cur), daLam = soDaLamOT();
+  var h = dauTrang() + '<div class="duong-dan"><a id="ot-ve">‹ ' + esc(O.de.tenNgan) + '</a><span class="ngan">·</span><span>Mã đề ' + esc(O.seed) + '</span></div>' +
+    '<div class="ot-tien-do" title="Đã làm ' + daLam + '/' + n + ' câu"><i style="width:' + Math.round(100 * daLam / n) + '%"></i></div>' +
+    '<div class="the"><div class="ot-dau-cau"><span class="chip-hang" style="margin:0"><span class="chip muc-th">' + OT_TEN_PHAN[q.phan] + '</span><span class="chip">Câu ' + so + '</span></span>' +
+    '<span class="chip ot-gio" id="ot-gio">' + icOT('gio') + chuoiGio(Math.round((Date.now() - O.batDau) / 1000)) + '</span></div>' +
+    '<div class="de"><b>Câu ' + so + '.</b> ' + tex(q.de) + '</div>' + (q.hinh || '');
+  if (q.loai === 'tn') {
+    h += '<div class="ot-pa">' + q.pa.map(function (p, k) { return '<button type="button" data-k="' + k + '" class="' + (a === k ? 'da' : '') + '"><span class="ch">' + 'ABCD'[k] + '</span><span>' + tex(p) + '</span></button>'; }).join('') + '</div>';
+  } else if (q.loai === 'ds') {
+    h += '<div style="margin-top:8px">' + q.y.map(function (y, k) {
+      return '<div class="ot-y"><div class="noi"><span class="nhan-y">' + 'abcd'[k] + ')</span>' + tex(y.t) + '</div><div class="ot-ds-nut" data-k="' + k + '">' +
+        '<button type="button" data-v="1" class="d' + (a[k] === true ? ' da' : '') + '">Đúng</button><button type="button" data-v="0" class="s' + (a[k] === false ? ' da' : '') + '">Sai</button></div></div>';
+    }).join('') + '</div>';
+  } else {
+    var sai = String(a).trim() !== '' && docSoOT(a) == null;
+    h += '<div class="ot-tl"><b>Đáp số:</b><input type="text" id="ot-in" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Nhập số" value="' + esc(a) + '"></div>' +
+      '<p class="ot-tl goi" style="margin:6px 0 0" id="ot-goi">' + (sai ? '<span class="canh">Đáp số phải là một số, ví dụ 354 hoặc -1,5.</span>' : 'Chỉ ghi số (không ghi đơn vị). Số thập phân dùng dấu phẩy, ví dụ 12,5.') + '</p>';
+  }
+  h += '</div>';
+  if (O.cur === n - 1) h += '<div class="thong-bao vang">' + ic('co') + '<span>Đây là câu cuối. Em bấm <b>Các câu</b> để xem lại, rồi bấm <b>Nộp bài</b>.</span></div><div class="hang-nut"><button class="nut xanh rong" id="ot-nop">' + ic('dung') + 'Nộp bài</button></div>';
+  h += '<div class="ot-thanh"><div class="trong-thanh"><button class="nut vien" id="ot-truoc"' + (O.cur === 0 ? ' disabled' : '') + '>‹ Câu trước</button>' +
+    '<button class="nut nut-cau" id="ot-cac-cau"><span>' + icOT('luoi') + ' Các câu</span><small>Đã làm ' + daLam + '/' + n + '</small></button>' +
+    (O.cur < n - 1 ? '<button class="nut phu" id="ot-sau">Câu sau ›</button>' : '<button class="nut xanh" id="ot-nop2">Nộp bài</button>') + '</div></div>';
+  app.innerHTML = h; ganDau();
+  document.getElementById('ot-ve').onclick = function () { luuDangLamOT(); dungGioOT(); veOnTap(O.ma, O.duong); };
+  document.getElementById('ot-truoc').onclick = function () { if (O.cur > 0) { O.cur--; luuDangLamOT(); veOtLam(); window.scrollTo(0, 0); } };
+  var sau = document.getElementById('ot-sau'); if (sau) sau.onclick = function () { O.cur++; luuDangLamOT(); veOtLam(); window.scrollTo(0, 0); };
+  document.getElementById('ot-cac-cau').onclick = moBangCauOT;
+  ['ot-nop', 'ot-nop2'].forEach(function (id) { var b = document.getElementById(id); if (b) b.onclick = xinNopOT; });
+  app.querySelectorAll('.ot-pa button').forEach(function (b) {
+    b.onclick = function () { var k = Number(b.getAttribute('data-k')); O.tl[O.cur] = O.tl[O.cur] === k ? null : k; luuDangLamOT(); capNhatSauChonOT(); app.querySelectorAll('.ot-pa button').forEach(function (x) { x.classList.toggle('da', Number(x.getAttribute('data-k')) === O.tl[O.cur]); }); };
+  });
+  app.querySelectorAll('.ot-ds-nut').forEach(function (g) {
+    var k = Number(g.getAttribute('data-k'));
+    g.querySelectorAll('button').forEach(function (b) {
+      b.onclick = function () { var v = b.getAttribute('data-v') === '1'; O.tl[O.cur][k] = O.tl[O.cur][k] === v ? null : v; luuDangLamOT(); capNhatSauChonOT();
+        g.querySelectorAll('button').forEach(function (x) { x.classList.toggle('da', O.tl[O.cur][k] === (x.getAttribute('data-v') === '1')); }); };
+    });
+  });
+  var inp = document.getElementById('ot-in');
+  if (inp) inp.addEventListener('input', function () {
+    O.tl[O.cur] = inp.value; luuDangLamOT(); capNhatSauChonOT();
+    var bad = inp.value.trim() !== '' && docSoOT(inp.value) == null;
+    document.getElementById('ot-goi').innerHTML = bad ? '<span class="canh">Đáp số phải là một số, ví dụ 354 hoặc -1,5.</span>' : 'Chỉ ghi số (không ghi đơn vị). Số thập phân dùng dấu phẩy, ví dụ 12,5.';
+  });
+  gioOT = setInterval(function () { var g = document.getElementById('ot-gio'); if (!g || !S.ot || S.ot.xong) return dungGioOT(); g.innerHTML = icOT('gio') + chuoiGio(Math.round((Date.now() - S.ot.batDau) / 1000)); }, 1000);
+}
+function capNhatSauChonOT() { // cập nhật thanh tiến độ và nút Các câu mà không vẽ lại cả trang
+  var O = S.ot, n = O.cau.length, d = soDaLamOT(), t = app.querySelector('.ot-tien-do i'), s = app.querySelector('#ot-cac-cau small');
+  if (t) t.style.width = Math.round(100 * d / n) + '%'; if (s) s.textContent = 'Đã làm ' + d + '/' + n;
+}
+function luoiCauOT(cau, lop, chon) { // lưới số câu chia theo phần
+  var h = '';
+  [1, 2, 3].forEach(function (p) {
+    var ds = []; cau.forEach(function (q, i) { if (q.phan === p) ds.push(i); });
+    if (!ds.length) return;
+    h += '<p class="ot-phan-ten">' + OT_TEN_PHAN[p] + '</p><div class="ot-luoi">' + ds.map(function (i) { var x = lop(i); return '<button type="button" data-i="' + i + '" class="' + x.cls + (chon === i ? ' dang' : '') + '" aria-label="Câu ' + soThuTuCau(cau, i) + ' phần ' + OT_LA_MA[p] + ': ' + x.ten + '">' + soThuTuCau(cau, i) + (x.phu || '') + '</button>'; }).join('') + '</div>';
+  });
+  return h;
+}
+function moBangCauOT() {
+  var O = S.ot, b = document.getElementById('ot-bang'), daLam = soDaLamOT(), chua = O.cau.length - daLam;
+  b.innerHTML = '<div class="the"><div class="ot-dau-cau"><b style="font-size:17px">Xem lại các câu</b><button class="nut nhe" id="ot-dong" aria-label="Đóng">Đóng ✕</button></div>' +
+    '<div class="ot-chu-giai"><span><i style="background:#10b981"></i>Đã làm (' + daLam + ')</span><span><i style="background:#ef4444"></i>Chưa làm (' + chua + ')</span><span><i style="background:transparent;outline:2px solid var(--chinh)"></i>Câu đang xem</span></div>' +
+    luoiCauOT(O.cau, function (i) {
+      var q = O.cau[i], a = O.tl[i];
+      if (daLamOT(q, a)) return { cls: 'co', ten: 'đã làm' };
+      if (q.loai === 'ds' && soYDaChon(a)) return { cls: 'mot-phan', ten: 'mới chọn ' + soYDaChon(a) + ' trên 4 ý', phu: '<small>' + soYDaChon(a) + '/4</small>' };
+      return { cls: 'chua', ten: 'chưa làm' };
+    }, O.cur) +
+    '<p class="mo nho" style="margin:0 0 10px">Bấm vào số câu để đến câu đó. Câu đúng sai cần chọn đủ 4 ý mới tính là đã làm.</p>' +
+    '<button class="nut xanh rong" id="ot-nop3">' + ic('dung') + 'Nộp bài</button></div>';
+  b.style.cssText = 'position:fixed;inset:0;background:var(--phu-mo);display:flex;align-items:flex-end;justify-content:center;padding:16px;z-index:30';
+  b.querySelector('.the').style.cssText = 'max-width:520px;width:100%;border-radius:22px;padding:18px;box-shadow:var(--bong-lon);animation:len .2s ease-out;margin:0';
+  var dong = function () { b.style.display = 'none'; b.innerHTML = ''; };
+  b.onclick = function (e) { if (e.target === b) dong(); };
+  document.getElementById('ot-dong').onclick = dong;
+  b.querySelectorAll('.ot-luoi button').forEach(function (x) { x.onclick = function () { dong(); O.cur = Number(x.getAttribute('data-i')); luuDangLamOT(); veOtLam(); window.scrollTo(0, 0); }; });
+  document.getElementById('ot-nop3').onclick = function () { dong(); xinNopOT(); };
+}
+function xinNopOT() {
+  var O = S.ot, chua = O.cau.map(function (q, i) { return daLamOT(q, O.tl[i]) ? null : OT_LA_MA[q.phan] + '.' + soThuTuCau(O.cau, i); }).filter(Boolean);
+  var noi = chua.length ? '<p><b>Em còn ' + chua.length + ' câu chưa làm xong:</b></p><p class="mo">' + chua.join(', ') + '</p><p>Câu chưa làm được 0 điểm. Em vẫn nộp bài?</p>' : '<p><b>Nộp bài?</b></p><p>Em đã làm đủ ' + O.cau.length + ' câu. Sau khi nộp không sửa được nữa.</p>';
+  hopThoai(noi, chua.length ? ['Làm tiếp', 'Nộp bài'] : ['Nộp bài', 'Xem lại']).then(function (k) { if ((chua.length && k === 1) || (!chua.length && k === 0)) nopBaiOT(); else if (chua.length) { O.cur = O.cau.findIndex(function (q, i) { return !daLamOT(q, O.tl[i]); }); veOtLam(); } });
+}
+function nopBaiOT() {
+  var O = S.ot; dungGioOT();
+  O.xong = true; O.giay = Math.round((Date.now() - O.batDau) / 1000); O.kq = chamDeOT(O.cau, O.tl); O.tab = null;
+  luu(khoaLuuOT(O.ma), null);
+  var soSai = O.kq.tung.filter(function (c) { return !c.dung; }).length;
+  var gui = { maCau: O.ma, tenCau: O.de.tenNgan, muc: Math.round(O.kq.tram / 10), cach: 'day', soGoiY: 0, xemTB: 0, soSai: soSai,
+    chuaXong: O.cau.some(function (q, i) { return !daLamOT(q, O.tl[i]); }), seed: O.seed, giay: O.giay,
+    chiTiet: JSON.stringify({ v: 1, ot: 1, diem: O.kq.tram / 100, tl: O.tl, dc: O.kq.tung.map(function (c) { return c.tram; }) }) };
+  veOtKetQua();
+  function guiDi() {
+    var tt = document.getElementById('trang-thai-luu'); if (!tt) return;
+    tt.innerHTML = '<span class="mo">Đang lưu kết quả…</span>';
+    goi('guiKetQua', S.token, gui).then(function (kq) {
+      var t2 = document.getElementById('trang-thai-luu');
+      if (kq.khongGhi) { if (t2) t2.innerHTML = '<span class="mo">Tài khoản giáo viên: làm thử, không ghi kết quả.</span>'; return; }
+      S.tienDo = kq.tienDo || S.tienDo; if (t2) t2.innerHTML = '<span class="mo">Đã lưu kết quả.</span>';
+    }).catch(function (e) {
+      var t2 = document.getElementById('trang-thai-luu'); if (!t2) return;
+      t2.innerHTML = '<span class="loi">Chưa lưu được (' + esc(e.message) + ').</span> <button class="nut nhe" id="luu-lai">Lưu lại</button>';
+      document.getElementById('luu-lai').onclick = guiDi;
+    });
+  }
+  guiDi();
+}
+/* ---------- kết quả ---------- */
+function vongDiemOT(tram) {
+  var C = 2 * Math.PI * 52, m = tram / 10, mau = m >= 80 ? 'var(--dung)' : m >= 65 ? 'var(--chinh)' : m >= 50 ? 'var(--vang)' : 'var(--sai)';
+  return '<div class="vong"><svg viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="52" fill="none" style="stroke:var(--the2)" stroke-width="12"/>' +
+    '<circle cx="60" cy="60" r="52" fill="none" style="stroke:' + mau + '" stroke-width="12" stroke-linecap="round" stroke-dasharray="' + (C * m / 100).toFixed(1) + ' ' + C.toFixed(1) + '"/></svg>' +
+    '<div class="muc-lon" style="font-size:28px">' + diemVN(tram) + '</div></div>';
+}
+function veOtKetQua() {
+  var O = S.ot, k = O.kq, n = O.cau.length, d = k.tram / 100;
+  var khen = d >= 9 ? 'Xuất sắc!' : d >= 8 ? 'Giỏi lắm!' : d >= 6.5 ? 'Khá rồi, cố thêm chút nữa!' : d >= 5 ? 'Đạt yêu cầu, em ôn thêm nhé!' : 'Mình ôn lại rồi làm đề mới nhé!';
+  var soCanOn = k.tung.filter(function (c) { return !c.dung; }).length;
+  var h = dauTrang() + '<div class="duong-dan"><a id="ot-ve">‹ Lớp ' + esc(O.de.lop) + '</a><span class="ngan">·</span><span>Mã đề ' + esc(O.seed) + '</span></div>' +
+    '<div class="the"><div class="the-diem">' + vongDiemOT(k.tram) + '<div style="flex:1;min-width:170px"><p class="loi-khen">' + khen + '</p><div class="ot-diem-lon">' + diemVN(k.tram) + ' <small>/ 10 điểm</small></div>' +
+    '<div class="mo nho" style="margin-top:6px">Thời gian làm bài: ' + chuoiGio(O.giay) + '</div><p id="trang-thai-luu" class="nho" style="margin:8px 0 0"></p></div></div>' +
+    '<table class="ot-bang-diem"><tr><td>Phần I · Trắc nghiệm: đúng ' + k.phan[1].dung + '/' + k.phan[1].n + ' câu</td><td>' + diemVN(k.phan[1].tram) + ' đ</td></tr>' +
+    '<tr><td>Phần II · Đúng sai: ' + k.phan[2].y.map(function (y, i) { return 'câu ' + (i + 1) + ' đúng ' + y + '/4 ý'; }).join(', ') + '</td><td>' + diemVN(k.phan[2].tram) + ' đ</td></tr>' +
+    '<tr><td>Phần III · Trả lời ngắn: đúng ' + k.phan[3].dung + '/' + k.phan[3].n + ' câu</td><td>' + diemVN(k.phan[3].tram) + ' đ</td></tr></table>' +
+    '<p class="ot-phan-ten" style="margin-top:14px">Bảng kết quả từng câu (bấm số câu để xem lời giải)</p>' +
+    '<div class="ot-chu-giai"><span><i style="background:#10b981"></i>Đúng</span><span><i style="background:#f59e0b"></i>Đúng một phần</span><span><i style="background:#ef4444"></i>Sai hoặc bỏ trống</span></div>' +
+    luoiCauOT(O.cau, function (i) { var c = k.tung[i]; return c.dung ? { cls: 'kq-dung', ten: 'đúng' } : c.tram > 0 ? { cls: 'kq-mot', ten: 'đúng một phần' } : { cls: 'kq-sai', ten: 'sai' }; }) +
+    '<div class="hang-nut"><button class="nut" id="ot-lai">' + ic('lamlai') + 'Làm đề mới</button><button class="nut phu" id="ot-ve2">Về Lớp ' + esc(O.de.lop) + '</button></div></div>' +
+    '<div class="ot-tab"><button id="tab-lg" class="' + (O.tab === 'lg' ? 'chon' : '') + '">' + ic('tailieu') + 'Lời giải và đáp án</button>' +
+    '<button id="tab-on" class="' + (O.tab === 'on' ? 'chon' : '') + '">' + ic('sach') + 'Nội dung cần ôn tập' + (soCanOn ? ' (' + soCanOn + ' câu)' : '') + '</button></div><div id="ot-noi-dung"></div>';
+  app.innerHTML = h; ganDau(); window.scrollTo(0, 0);
+  var ve = function () { veTrangChu(O.duong); };
+  document.getElementById('ot-ve').onclick = ve; document.getElementById('ot-ve2').onclick = ve;
+  document.getElementById('ot-lai').onclick = function () { batDauOT(O.ma, O.duong); };
+  document.getElementById('tab-lg').onclick = function () { moTabOT('lg'); };
+  document.getElementById('tab-on').onclick = function () { moTabOT('on'); };
+  app.querySelectorAll('.ot-luoi button').forEach(function (x) { x.onclick = function () { moTabOT('lg', Number(x.getAttribute('data-i'))); }; });
+  if (O.tab) moTabOT(O.tab, null, true);
+}
+function moTabOT(tab, den, khongCuon) {
+  var O = S.ot, noi = document.getElementById('ot-noi-dung');
+  O.tab = tab;
+  document.getElementById('tab-lg').classList.toggle('chon', tab === 'lg'); document.getElementById('tab-on').classList.toggle('chon', tab === 'on');
+  noi.innerHTML = tab === 'lg' ? O.cau.map(function (q, i) { return theLoiGiaiOT(O.cau, i, O.tl[i], O.kq.tung[i]); }).join('') : noiDungOnTapOT(O);
+  if (den != null) { var e = document.getElementById('lg-' + den); if (e) e.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  else if (!khongCuon) document.querySelector('.ot-tab').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function tomTatTraLoiOT(q, a) { // em chọn ... / đáp án ...
+  if (q.loai === 'tn') return 'Em chọn: <span class="' + (a === q.dung ? 'd' : 's') + '">' + (a == null ? 'bỏ trống' : 'ABCD'[a]) + '</span> · Đáp án: <span class="d">' + 'ABCD'[q.dung] + '</span>';
+  if (q.loai === 'ds') return q.y.map(function (y, k) { var x = a ? a[k] : null; return 'abcd'[k] + ') em: <span class="' + (x === y.dung ? 'd' : 's') + '">' + (x == null ? '—' : x ? 'Đ' : 'S') + '</span>, đáp án ' + (y.dung ? 'Đ' : 'S'); }).join(' · ');
+  var v = docSoOT(a), ok = v != null && Math.abs(v - q.da) < 1e-9;
+  return 'Em ghi: <span class="' + (ok ? 'd' : 's') + '">' + (String(a || '').trim() ? esc(a) : 'bỏ trống') + '</span> · Đáp án: <span class="d">' + esc(q.hienDa) + '</span>';
+}
+function phanDeVaGiaiOT(q, a, coBaiLam) { // đề, phương án (đánh dấu), lời giải
+  var h = '<div class="de">' + tex(q.de) + '</div>' + (q.hinh || '');
+  if (q.loai === 'tn') h += '<div class="ot-pa xem">' + q.pa.map(function (p, k) { return '<button type="button" tabindex="-1" class="' + (k === q.dung ? 'dung' : coBaiLam && a === k ? 'sai' : '') + '"><span class="ch">' + 'ABCD'[k] + '</span><span>' + tex(p) + '</span>' + (k === q.dung ? ' ' + ic('dung') : '') + '</button>'; }).join('') + '</div>' +
+    '<div class="ot-giai"><b class="tde">Lời giải · Đáp án ' + 'ABCD'[q.dung] + '</b>' + tex(q.giai) + '</div>';
+  else if (q.loai === 'ds') h += '<table class="ot-bang-ds"><tr><th>Ý</th><th>Khẳng định</th>' + (coBaiLam ? '<th>Em</th>' : '') + '<th>Đáp án</th></tr>' + q.y.map(function (y, k) {
+      var x = a ? a[k] : null;
+      return '<tr><td><b>' + 'abcd'[k] + ')</b></td><td>' + tex(y.t) + '</td>' + (coBaiLam ? '<td class="' + (x === y.dung ? 'd' : 's') + '">' + (x == null ? '—' : x ? 'Đúng' : 'Sai') + '</td>' : '') + '<td class="' + (y.dung ? 'd' : 's') + '">' + (y.dung ? 'Đúng' : 'Sai') + '</td></tr>';
+    }).join('') + '</table><div class="ot-giai"><b class="tde">Lời giải</b>' + q.y.map(function (y, k) { return '<b>' + 'abcd'[k] + ') ' + (y.dung ? 'Đúng' : 'Sai') + '.</b> ' + tex(y.giai); }).join('<br>') + '</div>';
+  else h += '<div class="ot-giai"><b class="tde">Lời giải · Đáp số ' + esc(q.hienDa) + '</b>' + tex(q.giai) + '</div>';
+  return h;
+}
+function theLoiGiaiOT(cau, i, a, c) {
+  var q = cau[i];
+  return '<div class="the" id="lg-' + i + '" style="scroll-margin-top:80px"><div class="ot-dau-cau"><span class="chip-hang" style="margin:0"><span class="chip muc-th">' + OT_TEN_PHAN[q.phan] + '</span><span class="chip">Câu ' + soThuTuCau(cau, i) + '</span>' + (q.muc ? '<span class="chip">' + esc(q.muc) + '</span>' : '') + '</span>' +
+    '<span class="nhan ' + (c.dung ? 'd100' : c.tram ? 'dmot' : '') + '"' + (!c.dung && !c.tram ? ' style="background:var(--sai2);color:var(--sai)"' : '') + '>' + diemVN(c.tram) + '/' + diemVN(c.toiDa) + ' đ</span></div>' +
+    phanDeVaGiaiOT(q, a, true) + '<p class="ot-tom">' + tomTatTraLoiOT(q, a) + '</p></div>';
+}
+function noiDungOnTapOT(O) {
+  var sai = []; O.cau.forEach(function (q, i) { if (!O.kq.tung[i].dung) sai.push(i); });
+  if (!sai.length) return '<div class="the"><div class="thong-bao dung">' + ic('dung') + '<span>Em làm đúng tất cả các câu. Không có nội dung nào cần ôn thêm. Tuyệt vời!</span></div></div>';
+  return '<div class="thong-bao vang">' + ic('sach') + '<span>Em chưa làm đúng hoàn toàn ' + sai.length + ' câu. Với mỗi câu: đọc lại <b>kiến thức cần nhớ</b>, rồi xem <b>ví dụ mẫu</b> (cùng dạng, số liệu khác) trước khi làm đề mới.</span></div>' +
+    sai.map(function (i) {
+      var q = O.cau[i], dn = O.de.cau[i], vd = taoCauOnTap(dn, O.seed + 500009, i);
+      return '<div class="the"><div class="ot-dau-cau"><b style="font-size:16px">Câu ' + soThuTuCau(O.cau, i) + ' (' + OT_TEN_PHAN[q.phan].split(' · ')[0] + '): ' + tex(dn.chuDe) + (dn.muc ? '<span class="ot-muc">' + esc(dn.muc) + '</span>' : '') + '</b>' +
+        '<a href="#" data-lg="' + i + '" class="nho">Xem lại câu này ›</a></div><p class="ot-tom" style="margin:0">' + tomTatTraLoiOT(q, O.tl[i]) + '</p>' +
+        '<div class="ot-kt"><b class="tde">Kiến thức cần nhớ</b>' + tex(dn.kienThuc) + '</div>' +
+        '<div class="ot-vd"><b>Ví dụ mẫu</b>' + phanDeVaGiaiOT(vd, null, false) + '</div></div>';
+    }).join('');
+}
+document.addEventListener('click', function (e) {
+  var a = e.target.closest && e.target.closest('a[data-lg]');
+  if (a && S.ot && S.ot.xong) { e.preventDefault(); moTabOT('lg', Number(a.getAttribute('data-lg'))); }
+});
+/* ---------- phía thầy: bảng điểm đề ôn tập và xem lại bài ---------- */
+function veBangOnTap(noi, ma) {
+  var du = S.ql.du, de = timDeOT(ma), luot = du.kq.filter(function (r) { return r.maCau === ma; }), tot = {};
+  luot.forEach(function (r) { var k = r.tk.toLowerCase(), c = tot[k]; if (!c) c = tot[k] = { cao: r, lan: 0, cuoi: r }; c.lan++; if (r.muc > c.cao.muc) c.cao = r; if (r.tg > c.cuoi.tg) c.cuoi = r; });
+  var diemR = function (r) { var ct = {}; try { ct = JSON.parse(r.chiTiet || '{}'); } catch (e) {} return ct.diem != null ? Math.round(ct.diem * 100) : r.muc * 10; };
+  var daLam = du.hs.filter(function (hs) { return tot[hs.tk.toLowerCase()]; }), tb = daLam.length ? daLam.reduce(function (s, hs) { return s + diemR(tot[hs.tk.toLowerCase()].cao); }, 0) / daLam.length : 0;
+  // tỉ lệ đúng từng câu (trên lượt cao nhất của mỗi bạn)
+  var dungCau = de.cau.map(function () { return 0; });
+  daLam.forEach(function (hs) { var ct = {}; try { ct = JSON.parse(tot[hs.tk.toLowerCase()].cao.chiTiet || '{}'); } catch (e) {} (ct.dc || []).forEach(function (t, i) { var td = de.cau[i].phan === 1 ? 25 : de.cau[i].phan === 2 ? 100 : 50; if (t >= td) dungCau[i]++; }); });
+  var h = '<div class="the"><h3 style="margin:0 0 10px;font-size:16px">' + esc(de.ten) + ' (Lớp ' + esc(de.lop) + ')</h3><div class="o-tk">' +
+    '<div><span class="so">' + daLam.length + '/' + du.hs.length + '</span><span class="mo">bạn đã làm</span></div>' +
+    '<div><span class="so">' + (daLam.length ? diemVN(Math.round(tb)) : '–') + '</span><span class="mo">điểm TB (lần cao nhất)</span></div>' +
+    '<div><span class="so">' + luot.length + '</span><span class="mo">lượt làm</span></div></div></div>' +
+    '<div class="the"><div class="mo">Điểm thang 10 theo cấu trúc mới. Mỗi lượt là một đề khác số liệu. Bấm tên học sinh để xem từng lượt và bài làm.</div><div class="bang-cuon"><table class="bang"><tr><th>Học sinh</th><th>Điểm cao nhất</th><th>Lần gần nhất</th><th>Số lần</th></tr>' +
+    du.hs.map(function (hs) {
+      var c = tot[hs.tk.toLowerCase()];
+      return '<tr><td><a href="#" data-tk="' + esc(hs.tk) + '">' + esc(hs.hoTen) + '</a></td>' + (c ? '<td><b>' + diemVN(diemR(c.cao)) + '</b></td><td>' + diemVN(diemR(c.cuoi)) + ' <span class="mo">(' + ngayGio(c.cuoi.tg) + ')</span></td><td>' + c.lan + '</td>' : '<td class="mo">chưa làm</td><td></td><td></td>') + '</tr>';
+    }).join('') + '</table></div></div>';
+  if (daLam.length) h += '<div class="the"><b>Tỉ lệ bạn làm đúng từng câu</b><div class="mo nho">Tính trên lần làm cao nhất của mỗi bạn; câu đúng sai tính là đúng khi đúng cả 4 ý.</div><div class="bang-cuon"><table class="bang"><tr><th>Câu</th><th>Nội dung</th><th>Đúng</th></tr>' +
+    de.cau.map(function (c, i) { var pt = Math.round(100 * dungCau[i] / daLam.length); return '<tr><td>' + OT_LA_MA[c.phan] + '.' + soThuTuCau(de.cau, i) + '</td><td>' + tex(c.chuDe) + '</td><td><span class="diem ' + lopDiem(pt) + '">' + pt + '%</span></td></tr>'; }).join('') + '</table></div></div>';
+  noi.innerHTML = h;
+  noi.querySelectorAll('a[data-tk]').forEach(function (a) { a.onclick = function (e) { e.preventDefault(); veChiTietHS(a.getAttribute('data-tk')); }; });
+}
+function xemLaiBaiOT(r, x) {
+  var de = timDeOT(r.maCau), ct = {}; try { ct = JSON.parse(r.chiTiet || '{}'); } catch (e) {}
+  var cau = taoDeOnTap(de, Number(r.seed)), tl = ct.tl || [], kq = chamDeOT(cau, tl);
+  x.innerHTML = '<div class="the"><b>' + esc(de.tenNgan) + ' · Mã đề ' + esc(r.seed) + ' · ' + diemVN(kq.tram) + ' điểm</b><div class="mo nho">Đề và bài làm của học sinh, có lời giải.</div></div>' +
+    cau.map(function (q, i) { return theLoiGiaiOT(cau, i, tl[i], kq.tung[i]); }).join('');
+  x.scrollIntoView({ behavior: 'smooth' });
+}
 </script>
 
 </body>
