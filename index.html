@@ -1560,7 +1560,7 @@ var OTL = (function () {
       var bc = r.chon([['Một chiếc cáp treo chạy thẳng từ ga', 'đến ga', 'quãng đường cáp treo', 'km'], ['Một đường dây điện được kéo thẳng từ trạm', 'đến trạm', 'đường dây điện', 'km'], ['Một chiếc flycam bay thẳng từ điểm', 'đến điểm', 'quãng đường flycam bay', 'km']]);
       return { loai: 'tl', de: 'Trên bản đồ một khu du lịch được gắn hệ trục toạ độ $Oxy$ (đơn vị trên mỗi trục là ' + bc[3] + '). ' + bc[0] + ' $S' + td(xS, yS) + '$ ' + bc[1] + ' $T' + td(xT, yT) + '$. Tính độ dài ' + bc[2] + ' (đơn vị: ' + bc[3] + ').',
         da: t[2], hienDa: String(t[2]),
-        giai: '$ST=\\sqrt{(x_T-x_S)^2+(y_T-y_S)^2}=\\sqrt{(' + xT + '-' + ng(xS) + ')^2+(' + yT + '-' + ng(yS) + ')^2}=\\sqrt{' + (dx * dx) + '+' + (dy * dy) + '}=' + t[2] + '$ (' + bc[3] + ').' };
+        giai: '$' + vt('ST') + '=(x_T-x_S;y_T-y_S)=(' + xT + '-' + ng(xS) + ';' + yT + '-' + ng(yS) + ')=' + td(dx, dy) + '$.<br>Độ dài quãng đường: $ST=\\left|' + vt('ST') + '\\right|=\\sqrt{' + ng(dx) + '^2+' + ng(dy) + '^2}=\\sqrt{' + (dx * dx) + '+' + (dy * dy) + '}=' + t[2] + '$ (' + bc[3] + ').' };
     } });
 
   cau.push({ phan: 3, chuDe: 'Định lí côsin trong bài toán thực tế',
@@ -2366,6 +2366,13 @@ function ganDau() {
 }
 
 /* ---------- chọn lớp → chương → bài → dạng → câu ---------- */
+function soThuTuMuc(t, tu) { // số thứ tự của "Chương IV..." hoặc "Bài 8..." để xếp đúng thứ tự
+  var m = new RegExp(tu + '\\s+([IVXLC]+|\\d+)', 'i').exec(t); if (!m) return 999;
+  if (/^\d+$/.test(m[1])) return Number(m[1]);
+  var g = { I: 1, V: 5, X: 10, L: 50, C: 100 }, r = 0, v = m[1].toUpperCase();
+  for (var i = 0; i < v.length; i++) { var a = g[v[i]], b = g[v[i + 1]] || 0; r += a < b ? -a : a; }
+  return r;
+}
 function veTrangChu(duong) {
   thanhKiHieu(false); S.lam = null;
   var c = cay(), html = dauTrang(), muc = [], tieuDe = '', phuDe = '';
@@ -2390,15 +2397,15 @@ function veTrangChu(duong) {
     });
   } else if (duong.length === 1) {
     tieuDe = 'Lớp ' + duong[0]; phuDe = 'Chọn chương';
-    if (window.mucOnTap) muc = muc.concat(mucOnTap(duong[0], duong));
-    c[duong[0]].thuTu.forEach(function (ch, i) {
+    c[duong[0]].thuTu.slice().sort(function (x, y) { return soThuTuMuc(x, 'Chương') - soThuTuMuc(y, 'Chương'); }).forEach(function (ch, i) {
       var m = /Chương\s+([IVXLC]+|\d+)/i.exec(ch), ds = DANG_TOAN.filter(function (d) { return String(d.lop) === String(duong[0]) && d.chuong === ch; }), dc = demCau(ds);
       muc.push({ bt: m ? m[1] : i + 1, mau: (i + 4) % 6, ten: ch, mo: c[duong[0]].chuong[ch].thuTu.length + ' bài · ' + dc.xong + '/' + dc.tong + ' câu đạt 100%', td: dc.pt, di: duong.concat([ch]) });
     });
+    if (window.mucOnTap) muc = muc.concat(mucOnTap(duong[0], duong)); // đề ôn tập để cuối danh sách
   } else if (duong.length === 2) {
     tieuDe = duong[1]; phuDe = 'Chọn bài';
     var C = c[duong[0]].chuong[duong[1]];
-    C.thuTu.forEach(function (b, i) {
+    C.thuTu.slice().sort(function (x, y) { return soThuTuMuc(x, 'Bài') - soThuTuMuc(y, 'Bài'); }).forEach(function (b, i) {
       var m = /Bài\s+(\d+)/i.exec(b), dc = demCau(C.bai[b]);
       muc.push({ bt: m ? m[1] : i + 1, mau: (i + 1) % 6, ten: b, mo: C.bai[b].length + ' dạng · ' + dc.xong + '/' + dc.tong + ' câu đạt 100%', td: dc.pt, di: duong.concat([b]) });
     });
