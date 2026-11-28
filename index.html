@@ -2091,7 +2091,7 @@ var OTL = (function () {
     } });
 
   cau.push({ phan: 3, muc: 'Vận dụng', chuDe: 'Vectơ trong vật lí: lực căng dây treo vật',
-    kienThuc: '<ul><li>Vật đứng yên: tổng các lực bằng $\\vec 0$: $\\vec T_1+\\vec T_2+\\vec P=\\vec 0$.</li><li>Chiếu lên phương ngang và phương thẳng đứng: $T_1\\cos\\alpha=T_2\\cos\\beta$, $T_1\\sin\\alpha+T_2\\sin\\beta=P$ ($\\alpha,\\beta$ là góc giữa dây và trần).</li><li>Hoặc dùng định lí sin trong tam giác lực.</li></ul>',
+    kienThuc: '<ul><li>Vật đứng yên: tổng các lực bằng $\\vec 0$: $\\vec T_1+\\vec T_2+\\vec P=\\vec 0$.</li><li>Đặt $' + vt('OD') + '=-\\vec P$ thì $\\vec T_1+\\vec T_2=' + vt('OD') + '$: dựng hình bình hành $OMDN$ có hai cạnh nằm trên hai dây, đường chéo $OD$ thẳng đứng, $OD=P$.</li><li>Dây hợp với trần góc $\\alpha$ thì hợp với phương thẳng đứng góc $90^\\circ-\\alpha$; dùng góc so le trong và tổng ba góc để tính các góc của tam giác $OMD$.</li><li>Định lí sin: $\\dfrac{a}{\\sin A}=\\dfrac{b}{\\sin B}=\\dfrac{c}{\\sin C}$.</li></ul>',
     tao: function (r) {
       var P = r.chon([40, 50, 60, 80, 100, 120]), al = r.chon([30, 40, 45, 50, 60]), be = r.chon([30, 35, 45, 55, 60]); if (al === be) lai();
       var hoi = r.tung(), T1 = P * L.cos(be) / L.sin(al + be), T2 = P * L.cos(al) / L.sin(al + be), T = hoi ? T1 : T2;
@@ -2107,10 +2107,27 @@ var OTL = (function () {
         L.cungGoc(Ax, top, 34, -al, 0) + L.chu(Ax + 52, top + 22, al + '°', 14, 'font-style="normal" fill="#e8590c"') +
         L.cungGoc(Bx, top, 34, 180, 180 + be) + L.chu(Bx - 52, top + 22, be + '°', 14, 'font-style="normal" fill="#e8590c"') +
         L.chu((Ax + Ox) / 2 - 14, (top + Oy) / 2 + 2, '(1)', 14, 'font-style="normal"') + L.chu((Bx + Ox) / 2 + 14, (top + Oy) / 2 + 2, '(2)', 14, 'font-style="normal"') + '</svg>';
+      // hình bình hành lực cho lời giải
+      var k0 = 100, Gx = 150, Gy = 150, c1 = Math.cos(al * Math.PI / 180), s1 = Math.sin(al * Math.PI / 180), c2 = Math.cos(be * Math.PI / 180), s2 = Math.sin(be * Math.PI / 180);
+      var l1 = k0 * c2 / L.sin(al + be), l2 = k0 * c1 / L.sin(al + be), Mx = Gx - l1 * c1, My = Gy - l1 * s1, Nx = Gx + l2 * c2, Ny = Gy - l2 * s2, Dy = Gy - k0;
+      var f = function (v) { return v.toFixed(1); }, yMin = Math.min(My, Ny, Dy) - 24, xMin = Math.min(Gx - (l1 + 30) * c1, Mx - 20) - 12, xMax = Math.max(Gx + (l2 + 30) * c2, Nx + 20) + 12;
+      var hinhGiai = '<svg viewBox="' + f(xMin) + ' ' + f(yMin) + ' ' + f(xMax - xMin) + ' ' + f(Gy + k0 + 14 - yMin) + '" class="hinh" style="max-width:220px" role="img" aria-label="Hình bình hành lực OMDN">' + L.muiTen('mt-den', '#1c7ed6') + L.muiTen('mt-den2', '#c92a2a') +
+        '<line x1="' + f(Gx - (l1 + 30) * c1) + '" y1="' + f(Gy - (l1 + 30) * s1) + '" x2="' + Gx + '" y2="' + Gy + '" stroke="#b8a07a" stroke-width="1.5"/><line x1="' + f(Gx + (l2 + 30) * c2) + '" y1="' + f(Gy - (l2 + 30) * s2) + '" x2="' + Gx + '" y2="' + Gy + '" stroke="#b8a07a" stroke-width="1.5"/>' +
+        '<line x1="' + f(Mx) + '" y1="' + f(My) + '" x2="' + Gx + '" y2="' + f(Dy) + '" stroke="#555" stroke-dasharray="5 4"/><line x1="' + f(Nx) + '" y1="' + f(Ny) + '" x2="' + Gx + '" y2="' + f(Dy) + '" stroke="#555" stroke-dasharray="5 4"/>' +
+        '<line x1="' + Gx + '" y1="' + Gy + '" x2="' + f(Mx) + '" y2="' + f(My) + '" stroke="#1c7ed6" stroke-width="2.4" marker-end="url(#mt-den)"/><line x1="' + Gx + '" y1="' + Gy + '" x2="' + f(Nx) + '" y2="' + f(Ny) + '" stroke="#1c7ed6" stroke-width="2.4" marker-end="url(#mt-den)"/>' +
+        '<line x1="' + Gx + '" y1="' + Gy + '" x2="' + Gx + '" y2="' + f(Dy) + '" stroke="#555" stroke-width="1.6"/><line x1="' + Gx + '" y1="' + Gy + '" x2="' + Gx + '" y2="' + (Gy + k0) + '" stroke="#c92a2a" stroke-width="2.4" marker-end="url(#mt-den2)"/>' +
+        L.chu(Gx + 10, Gy + 8, 'O', 18) + L.chu(Mx - 10, My - 6, 'M', 18) + L.chu(Nx + 10, Ny - 6, 'N', 18) + L.chu(Gx, Dy - 8, 'D', 18) +
+        L.chu((Gx + Mx) / 2 - 8, (Gy + My) / 2 + 16, 'T₁', 17) + L.chu((Gx + Nx) / 2 + 8, (Gy + Ny) / 2 + 16, 'T₂', 17) + L.chu(Gx + 14, Gy + k0 - 10, 'P', 18) + '</svg>';
       return { loai: 'tl', hinh: s, de: 'Một chiếc đèn có trọng lượng $P=' + P + '$ N được treo vào trần nhà bằng hai sợi dây (1) và (2). Dây (1) hợp với trần nhà góc $' + al + '^\\circ$, dây (2) hợp với trần nhà góc $' + be + '^\\circ$ (như hình vẽ). Đèn đứng yên. Tính độ lớn lực căng của dây (' + (hoi ? 1 : 2) + ') (đơn vị: N). <b>(Kết quả làm tròn đến hàng phần mười).</b>',
         da: Tr, hienDa: L.soVN(Tr),
-        giai: 'Đèn đứng yên nên $\\vec T_1+\\vec T_2+\\vec P=\\vec 0$. Chiếu lên phương ngang: $T_1\\cos' + al + '^\\circ=T_2\\cos' + be + '^\\circ$; phương thẳng đứng: $T_1\\sin' + al + '^\\circ+T_2\\sin' + be + '^\\circ=' + P + '$.<br>' +
-          'Giải ra $T_1=\\dfrac{P\\cos' + be + '^\\circ}{\\sin' + (al + be) + '^\\circ}' + xap(T1) + '$ N, $T_2=\\dfrac{P\\cos' + al + '^\\circ}{\\sin' + (al + be) + '^\\circ}' + xap(T2) + '$ N.<br>Vậy lực căng dây (' + (hoi ? 1 : 2) + ') $\\approx' + L.soVN(Tr) + '$ N.' };
+        giai: hinhGiai + 'Gọi $O$ là điểm treo đèn. Đèn đứng yên nên $\\vec T_1+\\vec T_2+\\vec P=\\vec 0$, tức $\\vec T_1+\\vec T_2=' + vt('OD') + '$ với $' + vt('OD') + '=-\\vec P$ hướng thẳng đứng lên trên, $OD=P=' + P + '$.<br>' +
+          'Dựng hình bình hành $OMDN$ với $M$ nằm trên dây (1), $N$ nằm trên dây (2). Khi đó $' + vt('OM') + '=\\vec T_1$, $' + vt('ON') + '=\\vec T_2$, nên $OM=T_1$, $MD=ON=T_2$.<br>' +
+          'Dây (1) hợp với trần (nằm ngang) góc $' + al + '^\\circ$ nên hợp với phương thẳng đứng góc $\\widehat{MOD}=90^\\circ-' + al + '^\\circ=' + (90 - al) + '^\\circ$. Tương tự $\\widehat{DON}=90^\\circ-' + be + '^\\circ=' + (90 - be) + '^\\circ$.<br>' +
+          '$MD\\parallel ON$ nên $\\widehat{MDO}=\\widehat{DON}=' + (90 - be) + '^\\circ$ (so le trong). Trong tam giác $OMD$: $\\widehat{OMD}=180^\\circ-' + (90 - al) + '^\\circ-' + (90 - be) + '^\\circ=' + (al + be) + '^\\circ$.<br>' +
+          'Định lí sin trong tam giác $OMD$: $\\dfrac{OM}{\\sin\\widehat{MDO}}=\\dfrac{MD}{\\sin\\widehat{MOD}}=\\dfrac{OD}{\\sin\\widehat{OMD}}$.<br>' +
+          (hoi ? 'Suy ra $T_1=OM=\\dfrac{' + P + '\\cdot\\sin' + (90 - be) + '^\\circ}{\\sin' + (al + be) + '^\\circ}' + xap(T1) + '$ (N).'
+               : 'Suy ra $T_2=MD=\\dfrac{' + P + '\\cdot\\sin' + (90 - al) + '^\\circ}{\\sin' + (al + be) + '^\\circ}' + xap(T2) + '$ (N).') +
+          '<br>Vậy lực căng dây (' + (hoi ? 1 : 2) + ') $\\approx' + L.soVN(Tr) + '$ N.' };
     } });
 
   cau.push({ phan: 3, muc: 'Vận dụng', chuDe: 'Giá trị nhỏ nhất của tích vô hướng (toạ độ)',
